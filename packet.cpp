@@ -9,14 +9,15 @@ private:
 void copyInt16(uint16_t value, void* buffer) {
 	std::memcpy(buffer, reinterpret_cast<void*>(&value), 2);
 }
-
-public:
-	size_t MAX_DATA_SIZE = 1024;
-	size_t HEADERSIZE = 8;
 	void* buf;
 	uint16_t seqNum, ackNum, windowSize;
 	bool ack, syn, fin;
 	size_t dataSize;
+
+public:
+	size_t MAX_DATA_SIZE = 1024;
+	size_t HEADERSIZE = 8;
+
 	
 	//Assumes buf is 1000 bytes
 	Packet(uint16_t seqNum_, uint16_t ackNum_, uint16_t windowSize_, bool ack_, bool syn_, bool fin_, void* data_, size_t dataSize_) :
@@ -47,7 +48,7 @@ public:
 	
 	Packet(void* rawPacket, int packetSize){
 		
-		buf = malloc(packetSize);;
+		buf = malloc(packetSize);
 		
 		std::memcpy(buf, rawPacket, packetSize);
 		
@@ -57,6 +58,7 @@ public:
 		ack = getAck();
 		syn = getSyn();
 		fin = getFin();
+		dataSize = packetSize - HEADERSIZE;
 	}
 	
 	~Packet(){
@@ -115,6 +117,15 @@ public:
 	}
 	size_t getRawPacketSize(){
 		return dataSize + HEADERSIZE;
+	}
+	void printInfo(){
+		std::cout<< getSeqNum() <<std::endl;
+		std::cout<< getAckNum() <<std::endl;
+		std::cout<< getWindowSize() <<std::endl;
+		std::cout<< getAck() <<std::endl;
+		std::cout<< getSyn() <<std::endl;
+		std::cout<< getFin() <<std::endl;
+		std::cout<< getDataSize() <<std::endl;
 	}
 };
 
