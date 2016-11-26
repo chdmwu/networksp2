@@ -167,7 +167,8 @@ int main(int argc, char *argv[]){
 		perror("recv");
 		return 5;
 	}
-	cout << (char*) buf << endl;
+	Packet pRecv(buf, bytesRecved);
+	pRecv.printInfo();
 
 	close(sockfd);
 	cout << "Connection closed..." << endl;

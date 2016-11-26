@@ -64,18 +64,15 @@ int main(int argc, char *argv[])
 {
 	string hostname;
 	int port;
-	string fileDir;
 	string ip;
 
 	if(argc <= 1){
 		hostname = "localhost";
 		port = 4000;
-		fileDir = ".";
 	}
 	else if(argc == 4){
 		hostname = string(argv[1]);
 		port = atoi(argv[2]);
-		fileDir = argv[3];
 	}
 
 	ip = getIP(hostname);
@@ -139,6 +136,13 @@ int main(int argc, char *argv[])
 			perror("recv");
 		}
 		cout << (char*) buf << endl;
+		string fileDir = "./files/test.txt";
+		std::vector<char> fileBytes = getFileBuffer(fileDir);
+		cout << fileBytes.size() << endl;
+		Packet p(22,2,22,true,true,false, (void*) fileBytes.data(), fileBytes.size());
+		if (send(clientSockfd, p.getRawPacketPointer(), p.getRawPacketSize(), 0) == -1) {
+					perror("recv");
+		}
 	}
 
 }
