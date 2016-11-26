@@ -9,6 +9,7 @@
 #include <thread>
 #include <netdb.h>
 #include <vector>
+#include <algorithm>
 
 
 #include <fstream>
@@ -23,45 +24,15 @@ using std::endl;
 using std::ios;
 using std::ifstream;
 using std::vector;
+using std::max;
 
 vector<char> getFileBuffer(string filePath);
-void handleRequest(string fileDir, int clientSockfd);
+string getIP(string host);
 
-string getIP(string host){
-	struct addrinfo hints;
-	  struct addrinfo* res;
-
-	  // prepare hints
-	  memset(&hints, 0, sizeof(hints));
-	  hints.ai_family = AF_INET; // IPv4
-	  hints.ai_socktype = SOCK_STREAM; // TCP
-
-	  // get address
-	  int status = 0;
-	  if ((status = getaddrinfo(host.c_str(), "80", &hints, &res)) != 0) {
-	    std::cerr << "getaddrinfo: " << gai_strerror(status) << std::endl;
-	  }
-
-	  std::cout << "IP addresses for " << host << ": " << std::endl;
-
-	  for(struct addrinfo* p = res; p != 0; p = p->ai_next) {
-	    // convert address to IPv4 address
-	    struct sockaddr_in* ipv4 = (struct sockaddr_in*)p->ai_addr;
-
-	    // convert the IP to a string and print it:
-	    char ipstr[INET_ADDRSTRLEN] = {'\0'};
-	    inet_ntop(p->ai_family, &(ipv4->sin_addr), ipstr, sizeof(ipstr));
-	    std::cout << "  " << ipstr << std::endl;
-	    // std::cout << "  " << ipstr << ":" << ntohs(ipv4->sin_port) << std::endl;
-	    return string(ipstr);
-	  }
-
-	  freeaddrinfo(res); // free the linked list
-	  return "";
-}
 
 int main(int argc, char *argv[])
 {
+	string fileDir = "./files/test.txt"; // TODO change
 	string hostname;
 	int port;
 	string ip;
@@ -108,7 +79,15 @@ int main(int argc, char *argv[])
 	}
 
 	bool runServer = true;
-
+	// TCP state variables
+	const size_t MSS = Packet::MAX_DATA_SIZE;
+	const size_t ONE = 1;
+	uint16_t seqNum, ackNum, windowSize = MSS * 15, cwnd = MSS, ssthresh = MSS * 15;
+	size_t MAX_MSG_SIZE = 10000; //TODO fix
+	void* buf[MAX_MSG_SIZE];
+	seqNum = 0; //TODO random
+	int retrans = 500; //ms
+	int bytesRecved = 0;
 
 	while(runServer){
 		// accept a new connection
@@ -126,34 +105,110 @@ int main(int argc, char *argv[])
 		std::cout << "Accept a connection from: " << ipstr << ":" <<
 				ntohs(clientAddr.sin_port) << std::endl;
 
-		//spawn a new thread to handle the incoming request
-		size_t MAX_MSG_SIZE = 10000;
-		void* buf[MAX_MSG_SIZE];
+		//Recving SYN
 		memset(buf, 0, MAX_MSG_SIZE);
-		std::stringstream ss;
-		memset(buf, '\0', sizeof(buf));
-		if (recv(clientSockfd, buf, MAX_MSG_SIZE, 0) == -1) {
+		bytesRecved = recv(clientSockfd, buf, MAX_MSG_SIZE, 0);
+		if (bytesRecved == -1) {
 			perror("recv");
 		}
-		cout << (char*) buf << endl;
+		Packet recvSyn(buf, bytesRecved);
+		ackNum = recvSyn.getSeqNum() + max(recvSyn.getDataSize(), ONE);
+		cout << "Receiving packet " << ackNum << endl;
+
+		//Sending SYN ACK
+		void* dummy;
+		Packet sendSyn(seqNum, ackNum, windowSize, 1, 1, 0, dummy, 0);
+		sendSyn.sendPacket(clientSockfd);
+		cout << "Sending packet " << seqNum << " " << cwnd << " " << ssthresh << " " << "SYN" << endl;
+		seqNum += max(sendSyn.getDataSize(), ONE);
+
+		//Recv Ack
+		memset(buf, 0, MAX_MSG_SIZE);
+		bytesRecved = recv(clientSockfd, buf, MAX_MSG_SIZE, 0);
+		if (bytesRecved == -1) {
+			perror("recv");
+		}
+		Packet recvAck(buf, bytesRecved);
+		ackNum = recvAck.getSeqNum() + max(recvAck.getDataSize(), ONE);
+		cout << "Receiving packet " << ackNum << endl;
+
+		cout << "Ready to send data" << endl;
+
+		//Read data
+		std::vector<char> fileBytes = getFileBuffer(fileDir);
+
+		//Send data packet
+		Packet dataPacket(seqNum, ackNum, windowSize, 0, 1, 0, fileBytes.data(), fileBytes.size());
+		dataPacket.sendPacket(clientSockfd);
+		cout << "Sending packet " << seqNum << " " << cwnd << " " << ssthresh << endl;
+		seqNum += max(sendSyn.getDataSize(), ONE);
+
+
+		/**
+		//Sending code
 		string fileDir = "./files/test.txt";
 		std::vector<char> fileBytes = getFileBuffer(fileDir);
-		cout << fileBytes.size() << endl;
 		Packet p(22,2,22,true,true,false, (void*) fileBytes.data(), fileBytes.size());
+		//p.writeToFile("./test2.txt");
 		if (send(clientSockfd, p.getRawPacketPointer(), p.getRawPacketSize(), 0) == -1) {
 					perror("recv");
 		}
+		*/
+
+
 	}
 
 }
 
 vector<char> getFileBuffer(string filePath) {
 	std::ifstream file(filePath, std::ios::binary | std::ios::ate);
+	if (!file.is_open()){
+		std::cerr << "Error opening file";
+	}
 	std::streamsize size = file.tellg();
 	file.seekg(0, std::ios::beg);
+
 
 	std::vector<char> buffer(size);
 	file.read(buffer.data(), size);
 	//buffer.back() = '\0';
 	return buffer;
 }
+
+string getIP(string host){
+	struct addrinfo hints;
+	  struct addrinfo* res;
+
+	  // prepare hints
+	  memset(&hints, 0, sizeof(hints));
+	  hints.ai_family = AF_INET; // IPv4
+	  hints.ai_socktype = SOCK_STREAM; // TCP
+
+	  // get address
+	  int status = 0;
+	  if ((status = getaddrinfo(host.c_str(), "80", &hints, &res)) != 0) {
+	    std::cerr << "getaddrinfo: " << gai_strerror(status) << std::endl;
+	  }
+
+	  std::cout << "IP addresses for " << host << ": " << std::endl;
+
+	  for(struct addrinfo* p = res; p != 0; p = p->ai_next) {
+	    // convert address to IPv4 address
+	    struct sockaddr_in* ipv4 = (struct sockaddr_in*)p->ai_addr;
+
+	    // convert the IP to a string and print it:
+	    char ipstr[INET_ADDRSTRLEN] = {'\0'};
+	    inet_ntop(p->ai_family, &(ipv4->sin_addr), ipstr, sizeof(ipstr));
+	    std::cout << "  " << ipstr << std::endl;
+	    // std::cout << "  " << ipstr << ":" << ntohs(ipv4->sin_port) << std::endl;
+	    return string(ipstr);
+	  }
+
+	  freeaddrinfo(res); // free the linked list
+	  return "";
+}
+
+class ServerState {
+public:
+
+};

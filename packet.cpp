@@ -3,6 +3,15 @@
 
 #include <iostream>
 #include <cstring>
+#include <string>
+#include <fstream>
+#include <sys/socket.h>
+
+using std::string;
+using std::ofstream;
+using std::ios;
+using std::cout;
+using std::endl;
 
 class Packet{
 private:
@@ -15,8 +24,9 @@ void copyInt16(uint16_t value, void* buffer) {
 	size_t dataSize;
 
 public:
-	size_t MAX_DATA_SIZE = 1024;
-	size_t HEADERSIZE = 8;
+	static const size_t MAX_DATA_SIZE = 1024;
+	static const size_t HEADERSIZE = 8;
+	static const size_t MAX_SEQ_NUM = 30720;
 
 	
 	//Assumes buf is 1000 bytes
@@ -43,8 +53,12 @@ public:
 		
 		copyInt16(header4, ((char*) buf)+6);
 		
-		//std::memcpy(((char*)buf)+HEADERSIZE, data_, dataSize);
+		std::memcpy(((char*)buf)+HEADERSIZE, data_, dataSize);
 	}
+	/**
+	Packet(uint16_t seqNum_, uint16_t ackNum_, uint16_t windowSize_, bool ack_, bool syn_, bool fin_) {
+		Packet(seqNum_,ackNum_,windowSize_,ack_,syn_,fin_, 0, 0);
+	}*/
 	
 	Packet(void* rawPacket, int packetSize){
 		
@@ -119,13 +133,29 @@ public:
 		return dataSize + HEADERSIZE;
 	}
 	void printInfo(){
-		std::cout<< getSeqNum() <<std::endl;
-		std::cout<< getAckNum() <<std::endl;
-		std::cout<< getWindowSize() <<std::endl;
-		std::cout<< getAck() <<std::endl;
-		std::cout<< getSyn() <<std::endl;
-		std::cout<< getFin() <<std::endl;
+		std::cout<< getSeqNum() <<" ";
+		std::cout<< getAckNum() <<" ";
+		std::cout<< getWindowSize() <<" ";
+		std::cout<< getAck() <<" ";
+		std::cout<< getSyn() <<" ";
+		std::cout<< getFin() <<" ";
 		std::cout<< getDataSize() <<std::endl;
+	}
+	int sendPacket(int sockfd){
+
+		int bytes = send(sockfd, getRawPacketPointer(), getRawPacketSize(), 0);
+		if(bytes == -1){
+			std::cerr << "ERROR send" << endl;
+		}
+		return bytes;
+	}
+	void writeToFile(string fileName){
+		ofstream myfile;
+		myfile.open(fileName.c_str(), std::ios_base::app | ios::binary | ios::out);
+		char array[getRawPacketSize()];
+		memcpy(array, buf, getRawPacketSize());
+		myfile.write(array+HEADERSIZE, dataSize);
+		cout << "writing to file bytes: " << dataSize << endl;
 	}
 };
 
