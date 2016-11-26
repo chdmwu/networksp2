@@ -29,6 +29,50 @@ using std::max;
 
 string getIP(string host);
 
+class ClientState {
+public:
+	const size_t MSS = Packet::MAX_DATA_SIZE;
+	const size_t ONE = 1;
+	uint16_t seqNum, ackNum, windowSize = 15*MSS;
+	size_t MAX_MSG_SIZE = 10000; //TODO fix
+
+	int retrans = 500; //ms
+	ClientState(){
+		seqNum = 0;//TODO random
+	}
+
+	void recvPacket(int clientSockfd, string filePath = ""){
+		void* buf[MAX_MSG_SIZE];
+		int bytesRecved = 0;
+
+		memset(buf, 0, MAX_MSG_SIZE);
+		bytesRecved = recv(clientSockfd, buf, MAX_MSG_SIZE, 0);
+		if (bytesRecved == -1) {
+			perror("recv");
+		}
+		Packet recv(buf, bytesRecved);
+		ackNum = recv.getSeqNum() + max(recv.getDataSize(), ONE);
+		cout << "Receiving packet " << ackNum << endl;
+		if(recv.getDataSize() > 0){
+			recv.writeToFile(filePath);
+		}
+	}
+	void sendPacket(int sockfd, void* buf, size_t size, bool syn, bool ack, bool fin){
+		Packet pSend(seqNum, ackNum, windowSize, syn, ack, fin, buf, size);
+		pSend.sendPacket(sockfd);
+		cout << "Sending packet " << seqNum;
+		if(syn){
+			cout << " " << "SYN";
+		}
+		if(fin){
+			cout << " " << "FIN";
+		}
+		cout << endl;
+
+		seqNum += max(pSend.getDataSize(), ONE);
+	}
+};
+
 int main(int argc, char *argv[]){
 	string fileName = "./testout.txt";
 	string hostname = "localhost";
@@ -63,17 +107,20 @@ int main(int argc, char *argv[]){
 			ntohs(clientAddr.sin_port) << std::endl;
 
 	//TCP State variables
-	const size_t MSS = Packet::MAX_DATA_SIZE;
-	const size_t ONE = 1;
-	uint16_t seqNum, ackNum, windowSize = 15*MSS;
-	size_t MAX_MSG_SIZE = 10000; //TODO fix
-	void* buf[MAX_MSG_SIZE];
-	int bytesRecved = 0;
+	ClientState clientState;
+	void* dummy = 0;
 
 	//SEND SYN
-	seqNum = 0; //TODO random initial
-	ackNum = 0;
-	void* dummy = 0;
+	clientState.sendPacket(sockfd,dummy,0,1,0,0);
+	//RECV SYN ACK
+	clientState.recvPacket(sockfd);
+	//SEND ACK
+	clientState.sendPacket(sockfd,dummy,0,0,1,0);
+	//RECV DATA
+	clientState.recvPacket(sockfd,fileName);
+
+	/**
+	//SEND SYN
 	Packet sendSyn(seqNum,ackNum,windowSize,0,1,0,dummy,0);
 	if (sendSyn.sendPacket(sockfd) == -1) {
 		perror("send");
@@ -110,7 +157,7 @@ int main(int argc, char *argv[]){
 	ackNum = dataPacket.getSeqNum() + max(dataPacket.getDataSize(), ONE);
 	cout << "Receiving packet " << ackNum << endl;
 	dataPacket.writeToFile(fileName);
-
+	*/
 
 	/**
 	size_t MAX_MSG_SIZE = 10000;

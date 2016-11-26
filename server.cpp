@@ -29,6 +29,48 @@ using std::max;
 vector<char> getFileBuffer(string filePath);
 string getIP(string host);
 
+class ServerState {
+public:
+	const size_t MSS = Packet::MAX_DATA_SIZE;
+	const size_t ONE = 1;
+	uint16_t seqNum, ackNum, windowSize = MSS * 15, cwnd = MSS, ssthresh = MSS * 15;
+	size_t MAX_MSG_SIZE = 10000; //TODO fix
+
+	int retrans = 500; //ms
+	ServerState(){
+		seqNum = 0;//TODO random
+	}
+
+	void recvPacket(int clientSockfd){
+		void* buf[MAX_MSG_SIZE];
+		int bytesRecved = 0;
+
+		memset(buf, 0, MAX_MSG_SIZE);
+		bytesRecved = recv(clientSockfd, buf, MAX_MSG_SIZE, 0);
+		if (bytesRecved == -1) {
+			perror("recv");
+		}
+		Packet recv(buf, bytesRecved);
+		ackNum = recv.getSeqNum() + max(recv.getDataSize(), ONE);
+		cout << "Receiving packet " << ackNum << endl;
+	}
+	void sendPacket(int clientSockfd, void* buf, size_t size, bool syn, bool ack, bool fin){
+		Packet pSend(seqNum, ackNum, windowSize, syn, ack, fin, buf, size);
+		pSend.sendPacket(clientSockfd);
+		cout << "Sending packet " << seqNum << " " << cwnd << " " << ssthresh;
+		if(syn){
+			cout << " " << "SYN";
+		}
+		if(fin){
+			cout << " " << "FIN";
+		}
+		cout << endl;
+
+		seqNum += max(pSend.getDataSize(), ONE);
+	}
+};
+
+
 
 int main(int argc, char *argv[])
 {
@@ -80,14 +122,8 @@ int main(int argc, char *argv[])
 
 	bool runServer = true;
 	// TCP state variables
-	const size_t MSS = Packet::MAX_DATA_SIZE;
-	const size_t ONE = 1;
-	uint16_t seqNum, ackNum, windowSize = MSS * 15, cwnd = MSS, ssthresh = MSS * 15;
-	size_t MAX_MSG_SIZE = 10000; //TODO fix
-	void* buf[MAX_MSG_SIZE];
-	seqNum = 0; //TODO random
-	int retrans = 500; //ms
-	int bytesRecved = 0;
+	ServerState serverState;
+
 
 	while(runServer){
 		// accept a new connection
@@ -105,57 +141,18 @@ int main(int argc, char *argv[])
 		std::cout << "Accept a connection from: " << ipstr << ":" <<
 				ntohs(clientAddr.sin_port) << std::endl;
 
+		void* dummy = 0;
+
 		//Recving SYN
-		memset(buf, 0, MAX_MSG_SIZE);
-		bytesRecved = recv(clientSockfd, buf, MAX_MSG_SIZE, 0);
-		if (bytesRecved == -1) {
-			perror("recv");
-		}
-		Packet recvSyn(buf, bytesRecved);
-		ackNum = recvSyn.getSeqNum() + max(recvSyn.getDataSize(), ONE);
-		cout << "Receiving packet " << ackNum << endl;
-
+		serverState.recvPacket(clientSockfd);
 		//Sending SYN ACK
-		void* dummy;
-		Packet sendSyn(seqNum, ackNum, windowSize, 1, 1, 0, dummy, 0);
-		sendSyn.sendPacket(clientSockfd);
-		cout << "Sending packet " << seqNum << " " << cwnd << " " << ssthresh << " " << "SYN" << endl;
-		seqNum += max(sendSyn.getDataSize(), ONE);
-
-		//Recv Ack
-		memset(buf, 0, MAX_MSG_SIZE);
-		bytesRecved = recv(clientSockfd, buf, MAX_MSG_SIZE, 0);
-		if (bytesRecved == -1) {
-			perror("recv");
-		}
-		Packet recvAck(buf, bytesRecved);
-		ackNum = recvAck.getSeqNum() + max(recvAck.getDataSize(), ONE);
-		cout << "Receiving packet " << ackNum << endl;
-
-		cout << "Ready to send data" << endl;
-
+		serverState.sendPacket(clientSockfd, dummy, 0, 1, 1, 0);
+		//Recv ACK
+		serverState.recvPacket(clientSockfd);
 		//Read data
 		std::vector<char> fileBytes = getFileBuffer(fileDir);
-
 		//Send data packet
-		Packet dataPacket(seqNum, ackNum, windowSize, 0, 1, 0, fileBytes.data(), fileBytes.size());
-		dataPacket.sendPacket(clientSockfd);
-		cout << "Sending packet " << seqNum << " " << cwnd << " " << ssthresh << endl;
-		seqNum += max(sendSyn.getDataSize(), ONE);
-
-
-		/**
-		//Sending code
-		string fileDir = "./files/test.txt";
-		std::vector<char> fileBytes = getFileBuffer(fileDir);
-		Packet p(22,2,22,true,true,false, (void*) fileBytes.data(), fileBytes.size());
-		//p.writeToFile("./test2.txt");
-		if (send(clientSockfd, p.getRawPacketPointer(), p.getRawPacketSize(), 0) == -1) {
-					perror("recv");
-		}
-		*/
-
-
+		serverState.sendPacket(clientSockfd,fileBytes.data(),fileBytes.size(), 0, 1, 0);
 	}
 
 }
@@ -207,8 +204,3 @@ string getIP(string host){
 	  freeaddrinfo(res); // free the linked list
 	  return "";
 }
-
-class ServerState {
-public:
-
-};
