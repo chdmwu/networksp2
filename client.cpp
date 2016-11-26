@@ -15,6 +15,7 @@
 #include <netdb.h>
 #include <vector>
 #include <algorithm>
+#include <mutex>
 
 
 using std::string;
@@ -29,38 +30,54 @@ using std::max;
 
 string getIP(string host);
 
+
+
 class ClientState {
 public:
 	const size_t MSS = Packet::MAX_DATA_SIZE;
 	const size_t ONE = 1;
-	uint16_t seqNum, ackNum, windowSize = 15*MSS;
-	size_t MAX_MSG_SIZE = 10000; //TODO fix
+	const size_t MAX_SEQ_NUM = 30720;
+	uint16_t seqNum, ackNum, windowSize = 15*MSS, lastAckedPacket;
+	size_t MAX_MSG_SIZE = MSS + Packet::HEADERSIZE; //TODO fix
+	std::mutex writeLock;
 
 	int retrans = 500; //ms
 	ClientState(){
 		seqNum = 0;//TODO random
+		lastAckedPacket = seqNum;
 	}
 
-	void recvPacket(int clientSockfd, string filePath = ""){
+	void recvPacket(int sockfd, string filePath = ""){
 		void* buf[MAX_MSG_SIZE];
 		int bytesRecved = 0;
 
 		memset(buf, 0, MAX_MSG_SIZE);
-		bytesRecved = recv(clientSockfd, buf, MAX_MSG_SIZE, 0);
+		bytesRecved = recv(sockfd, buf, MAX_MSG_SIZE, 0);
 		if (bytesRecved == -1) {
 			perror("recv");
 		}
 		Packet recv(buf, bytesRecved);
-		ackNum = recv.getSeqNum() + max(recv.getDataSize(), ONE);
-		cout << "Receiving packet " << ackNum << endl;
-		if(recv.getDataSize() > 0){
-			recv.writeToFile(filePath);
+		//only increment ack if its the packet we expected
+		if(ackNum == recv.getSeqNum()){
+			ackNum = (recv.getSeqNum() + max(recv.getDataSize(), ONE)) % MAX_SEQ_NUM;
+			//only write if if the packet we expected TODO: fix
+			if(recv.getDataSize() > 0){
+				writeLock.lock();
+				recv.writeToFile(filePath);
+				writeLock.unlock();
+			}
 		}
+		void* dummy = 0;
+		cout << "Receiving packet " << ackNum << " length " << recv.getDataSize() << endl;
+
+		// Send ack for this packet
+		this->sendPacket(sockfd, dummy, 0, 0, 1, 0);
+
 	}
 	void sendPacket(int sockfd, void* buf, size_t size, bool syn, bool ack, bool fin){
 		Packet pSend(seqNum, ackNum, windowSize, syn, ack, fin, buf, size);
 		pSend.sendPacket(sockfd);
-		cout << "Sending packet " << seqNum;
+		cout << "Sending packet " << seqNum << " acking " << ackNum;
 		if(syn){
 			cout << " " << "SYN";
 		}
@@ -69,12 +86,18 @@ public:
 		}
 		cout << endl;
 
-		seqNum += max(pSend.getDataSize(), ONE);
+		seqNum = (seqNum + max(pSend.getDataSize(), ONE)) % MAX_SEQ_NUM;
 	}
 };
 
+void recvDataPacketThread(int sockfd, string fileName, ClientState* clientState);
+
+
 int main(int argc, char *argv[]){
-	string fileName = "./testout.txt";
+	string fileName = "./testout.jpg";
+
+	//Delete old file, if it exists
+	std::remove(fileName.c_str());
 	string hostname = "localhost";
 	int port = 4000;
 
@@ -107,79 +130,37 @@ int main(int argc, char *argv[]){
 			ntohs(clientAddr.sin_port) << std::endl;
 
 	//TCP State variables
-	ClientState clientState;
+	ClientState* clientState = new ClientState;
 	void* dummy = 0;
 
+	//3 way handshake
 	//SEND SYN
-	clientState.sendPacket(sockfd,dummy,0,1,0,0);
+	clientState->sendPacket(sockfd,dummy,0,1,0,0);
 	//RECV SYN ACK
-	clientState.recvPacket(sockfd);
+	//clientState->recvPacket(sockfd);
 	//SEND ACK
-	clientState.sendPacket(sockfd,dummy,0,0,1,0);
+	//clientState->sendPacket(sockfd,dummy,0,0,1,0);
+
+	//Ready to recv data
+
 	//RECV DATA
-	clientState.recvPacket(sockfd,fileName);
+	//clientState.recvPacket(sockfd,fileName);
+	//std::thread recvDataThread(recvDataPacketThread, sockfd, fileName, clientState);
+	//recvDataThread.detach();
 
-	/**
-	//SEND SYN
-	Packet sendSyn(seqNum,ackNum,windowSize,0,1,0,dummy,0);
-	if (sendSyn.sendPacket(sockfd) == -1) {
-		perror("send");
-		return 4;
-	}
-	seqNum += max(sendSyn.getDataSize(), ONE);
-	cout << "Sending packet " << ackNum << " " << "SYN" << endl;
+	recvDataPacketThread(sockfd,fileName,clientState);
 
-	//RECV SYN ACK
-	memset(buf, 0, MAX_MSG_SIZE);
-	bytesRecved = recv(sockfd, buf, MAX_MSG_SIZE, 0);
-	if (bytesRecved == -1) {
-		perror("recv");
-	}
-	Packet recvSyn(buf, bytesRecved);
-	ackNum = recvSyn.getSeqNum() + max(recvSyn.getDataSize(), ONE);
-	cout << "Receiving packet " << ackNum << endl;
 
-	//SEND ACK
-	Packet sendAck(seqNum,ackNum,windowSize,1,1,0,dummy,0);
-	if (sendAck.sendPacket(sockfd) == -1) {
-		perror("send");
-		return 4;
-	}
-	cout << "Sending packet " << ackNum << endl;
-
-	//RECV data
-	memset(buf, 0, MAX_MSG_SIZE);
-	bytesRecved = recv(sockfd, buf, MAX_MSG_SIZE, 0);
-	if (bytesRecved == -1) {
-		perror("recv");
-	}
-	Packet dataPacket(buf, bytesRecved);
-	ackNum = dataPacket.getSeqNum() + max(dataPacket.getDataSize(), ONE);
-	cout << "Receiving packet " << ackNum << endl;
-	dataPacket.writeToFile(fileName);
-	*/
-
-	/**
-	size_t MAX_MSG_SIZE = 10000;
-	void* buf[MAX_MSG_SIZE];
-	memset(buf, '\0', sizeof(buf));
-	int bytesRecved = recv(sockfd, buf, MAX_MSG_SIZE, 0);
-	if (bytesRecved == -1) {
-		perror("recv");
-		return 5;
-	}
-	Packet pRecv(buf, bytesRecved);
-	pRecv.printInfo();
-	char* writeBuf[pRecv.getDataSize()];
-	pRecv.getData(writeBuf);
-	//writeToFile(writeBuf, pRecv.getDataSize(),"./test2.txt");
-	pRecv.writeToFile("./test2.txt");
-	*/
-
+	delete(clientState);
 	close(sockfd);
 	cout << "Connection closed..." << endl;
 }
 
+void recvDataPacketThread(int sockfd, string fileName, ClientState* clientState){
+	while(true){ //TODO fin
+		clientState->recvPacket(sockfd,fileName);
+	}
+}
 
 string getIP(string host){
 	struct addrinfo hints;
