@@ -212,20 +212,25 @@ int main(int argc, char *argv[])
 		perror("listen");
 		return 3;
 	}*/
+	char buf[10];
+	memset(buf, 0, 10);
+	struct sockaddr addr2;
+	socklen_t clientAddrSize;
+	socklen_t fromlen;
+	cout<<"waiting"<<endl;
+	recvfrom(sockfd, buf, 10, 0, &addr2, &fromlen);
+	cout<<"response"<<endl;
+	cout<<buf<<endl;
 
 	bool runServer = true;
 	// TCP state variables
 	ServerState* serverState = new ServerState;
 
 
+	/**
 	while(runServer){
-/**
-		char ipstr[INET_ADDRSTRLEN] = {'\0'};
-		inet_ntop(clientAddr.sin_family, &clientAddr.sin_addr, ipstr, sizeof(ipstr));
-		std::cout << "Accept a connection from: " << ipstr << ":" <<
-				ntohs(clientAddr.sin_port) << std::endl;
-*/
 		void* dummy = 0;
+
 
 		//Recving SYN
 		serverState->recvPacket(sockfd);
@@ -242,7 +247,9 @@ int main(int argc, char *argv[])
 		sendThread.detach();
 
 		recvPacketsThread(sockfd, serverState);
-	}
+
+	}*/
+
 	delete(serverState);
 }
 

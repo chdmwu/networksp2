@@ -45,26 +45,11 @@ public:
 	socklen_t serverAddrSize;
 
 	int retrans = 500; //ms
-	ClientState(string ip, int port){
+	ClientState(int sockfd_, sockaddr_in* serverAddr_){
 		seqNum = 0;//TODO random
 		lastAckedPacket = seqNum;
-		sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-		struct sockaddr_in* serverAddr = new sockaddr_in;
-		serverAddr->sin_family = AF_INET;
-		serverAddr->sin_port = htons(port);     // short, network byte order
-		serverAddr->sin_addr.s_addr = inet_addr(ip.c_str());
-		memset(serverAddr->sin_zero, '\0', sizeof(serverAddr->sin_zero));
-
-		struct sockaddr_in clientAddr;
-		socklen_t clientAddrLen = sizeof(clientAddr);
-		if (getsockname(sockfd, (struct sockaddr *)&clientAddr, &clientAddrLen) == -1) {
-			perror("getsockname");
-		}
-
-		char ipstr[INET_ADDRSTRLEN] = {'\0'};
-		inet_ntop(clientAddr.sin_family, &clientAddr.sin_addr, ipstr, sizeof(ipstr));
-		std::cout << "Set up a connection from: " << ipstr << ":" <<
-				ntohs(clientAddr.sin_port) << std::endl;
+		sockfd = sockfd_;
+		serverAddr = serverAddr_;
 	}
 
 	void recvPacket(string filePath = ""){
@@ -130,31 +115,57 @@ int main(int argc, char *argv[]){
 
 
 	string ip = getIP(hostname);
+	int sockfd;
+	sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+
+	struct sockaddr_in* clientAddr = new sockaddr_in;;
+	clientAddr->sin_family = AF_INET;
+	clientAddr->sin_port = htons(4001);     // short, network byte order, any port
+	clientAddr->sin_addr.s_addr = inet_addr(ip.c_str());
+	memset(clientAddr->sin_zero, '\0', sizeof(clientAddr->sin_zero));
+	/*
+	if (getsockname(sockfd, (struct sockaddr *) clientAddr, &clientAddrLen) == -1) {
+		perror("getsockname");
+	}*/
+	if (bind(sockfd, (struct sockaddr*) clientAddr, sizeof(*clientAddr)) == -1) {
+		perror("bind");
+	}
+
+
+	char ipstr[INET_ADDRSTRLEN] = {'\0'};
+	inet_ntop(clientAddr->sin_family, &clientAddr->sin_addr, ipstr, sizeof(ipstr));
+	std::cout << "Set up a connection from: " << ipstr << ":" <<
+			ntohs(clientAddr->sin_port) << std::endl;
+
+	/*
+	struct sockaddr_in* serverAddr = new sockaddr_in;
+	serverAddr->sin_family = AF_INET;
+	serverAddr->sin_port = htons(port);     // short, network byte order
+	serverAddr->sin_addr.s_addr = inet_addr(ip.c_str());
+	memset(serverAddr->sin_zero, '\0', sizeof(serverAddr->sin_zero));
+	*/
+	struct sockaddr_in serverAddr;
+	serverAddr.sin_family = AF_INET;
+	serverAddr.sin_port = htons(4000);     // short, network byte order
+	serverAddr.sin_addr.s_addr = inet_addr(ip.c_str());
+	memset(serverAddr.sin_zero, '\0', sizeof(serverAddr.sin_zero));
+
+	string msg = "hello";
+	sendto(sockfd, msg.c_str(), msg.size(), 0, (sockaddr*) &serverAddr, sizeof(serverAddr));
 
 
 	//TCP State variables
-	ClientState* clientState = new ClientState(ip, port);
+	//ClientState* clientState = new ClientState(sockfd, serverAddr);
 	void* dummy = 0;
 
-	//3 way handshake
-	//SEND SYN
-	clientState->sendPacket(dummy,0,1,0,0);
-	//RECV SYN ACK
-	//clientState->recvPacket(sockfd);
-	//SEND ACK
-	//clientState->sendPacket(sockfd,dummy,0,0,1,0);
+	//clientState->sendPacket(dummy,0,1,0,0);
+
 
 	//Ready to recv data
-
-	//RECV DATA
-	//clientState.recvPacket(sockfd,fileName);
-	//std::thread recvDataThread(recvDataPacketThread, sockfd, fileName, clientState);
-	//recvDataThread.detach();
-
-	recvDataPacketThread(fileName,clientState);
+	//recvDataPacketThread(fileName,clientState);
 
 
-	delete(clientState);
+	//delete(clientState);
 	//close(sockfd);
 	cout << "Connection closed..." << endl;
 }
