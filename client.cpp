@@ -144,14 +144,14 @@ int main(int argc, char *argv[]){
 	serverAddr->sin_addr.s_addr = inet_addr(ip.c_str());
 	memset(serverAddr->sin_zero, '\0', sizeof(serverAddr->sin_zero));
 	*/
-	struct sockaddr_in serverAddr;
-	serverAddr.sin_family = AF_INET;
-	serverAddr.sin_port = htons(4000);     // short, network byte order
-	serverAddr.sin_addr.s_addr = inet_addr(ip.c_str());
-	memset(serverAddr.sin_zero, '\0', sizeof(serverAddr.sin_zero));
+	struct sockaddr_in* serverAddr = new sockaddr_in;
+	serverAddr->sin_family = AF_INET;
+	serverAddr->sin_port = htons(4000);     // short, network byte order
+	serverAddr->sin_addr.s_addr = inet_addr(ip.c_str());
+	memset(serverAddr->sin_zero, '\0', sizeof(serverAddr->sin_zero));
 
 	string msg = "hello";
-	sendto(sockfd, msg.c_str(), msg.size(), 0, (sockaddr*) &serverAddr, sizeof(serverAddr));
+	sendto(sockfd, msg.c_str(), msg.size(), 0, (sockaddr*) serverAddr, sizeof(*serverAddr));
 
 
 	//TCP State variables
