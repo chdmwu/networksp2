@@ -43,6 +43,7 @@ public:
 	int sockfd;
 	struct sockaddr_in* serverAddr;
 	socklen_t serverAddrSize;
+	vector<Packet*> outOfOrderPackets;
 
 	int retrans = 500; //ms
 	ClientState(int sockfd_, sockaddr_in* serverAddr_){
@@ -62,21 +63,29 @@ public:
 		if (bytesRecved == -1) {
 			perror("recv");
 		}
-		Packet recv(buf, bytesRecved);
+		//Packet recv(buf, bytesRecved);
+		Packet* recv = new Packet(buf, bytesRecved);
 		//only increment ack if its the packet we expected
-		if(ackNum == recv.getSeqNum()){
+		if(ackNum == recv->getSeqNum()){
 
-			ackNum = (recv.getSeqNum() + max(recv.getDataSize(), ONE)) % MAX_SEQ_NUM;
-			if(recv.getDataSize() > 0){
-				writeLock.lock();
-				recv.writeToFile(filePath);
-				writeLock.unlock();
+			ackNum = (recv->getSeqNum() + max(recv->getDataSize(), ONE)) % MAX_SEQ_NUM;
+			writeLock.lock();
+			recv->writeToFile(filePath);
+			writeLock.unlock();
+			delete(recv); // Delete packets after they are written to file
+
+			if(outOfOrderPackets.size() > 0){
+				// try to write out of order packets, now that we got a new packet
+				// this function should update the ack accordingly ? untested
+				tryWriteOutOfOrderPackets(filePath);
 			}
+
 		} else {
-			// TODO: save out of order packets, deal with writing them to file once we have all of them
+			// save out of order packets, deal with writing them to file when we get others
+			outOfOrderPackets.push_back(recv);
 		}
 		void* dummy = 0;
-		cout << "Receiving packet " << ackNum << " length " << recv.getDataSize() << endl;
+		cout << "Receiving packet " << ackNum << " length " << bytesRecved - 8<< endl;
 
 		// Send ack for this packet
 		this->sendPacket(dummy, 0, 0, 1, 0);
@@ -99,6 +108,25 @@ public:
 		cout << endl;
 
 		seqNum = (seqNum + max(pSend.getDataSize(), ONE)) % MAX_SEQ_NUM;
+	}
+
+	void tryWriteOutOfOrderPackets(string filePath){
+		bool success = false;
+		for(int ii=0;ii<outOfOrderPackets.size();ii++){
+			Packet* recv = outOfOrderPackets.at(ii);
+			if(recv->getSeqNum() == ackNum){
+				ackNum = (recv->getSeqNum() + max(recv->getDataSize(), ONE)) % MAX_SEQ_NUM;
+				writeLock.lock();
+				recv->writeToFile(filePath);
+				writeLock.unlock();
+				outOfOrderPackets.erase(outOfOrderPackets.begin() + ii);
+				delete(recv); //delete packets after they are written to file
+				break;
+			}
+		}
+		if(success && outOfOrderPackets.size() > 0){
+			tryWriteOutOfOrderPackets(filePath); //try to write another out of order packet if we successfully wrote one;
+		}
 	}
 };
 

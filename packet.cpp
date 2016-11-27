@@ -150,12 +150,14 @@ public:
 		return bytes;
 	}
 	void writeToFile(string fileName){
-		ofstream myfile;
-		myfile.open(fileName.c_str(), std::ios_base::app | ios::binary | ios::out);
-		char array[getRawPacketSize()];
-		memcpy(array, buf, getRawPacketSize());
-		myfile.write(array+HEADERSIZE, dataSize);
-		cout << "writing to file bytes: " << dataSize << endl;
+		if(dataSize > 0){
+			ofstream myfile;
+			myfile.open(fileName.c_str(), std::ios_base::app | ios::binary | ios::out);
+			char array[getRawPacketSize()];
+			memcpy(array, buf, getRawPacketSize());
+			myfile.write(array+HEADERSIZE, dataSize);
+			cout << "writing to file bytes: " << dataSize << endl;
+		}
 	}
 };
 

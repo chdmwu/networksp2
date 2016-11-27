@@ -46,11 +46,17 @@ public:
 	struct sockaddr clientAddr;
 	socklen_t clientAddrSize;
 	int retrans = 500; //ms
-	ServerState(){
+	int dataSent, totalData;
+	std::vector<char> fileBytes;
+
+	ServerState(string fileDir){
 		seqNum = 0;//TODO random
 		lastAckedPacket = seqNum;
 		dupAcks = 0;
 		state = "SS";
+		fileBytes = getFileBuffer(fileDir);
+		dataSent = 0;
+		totalData = fileBytes.size();
 	}
 	~ServerState(){
 	}
@@ -109,14 +115,13 @@ public:
 				dupAcks++;
 			} else if(state == "FR") {
 				cwnd += MSS;
-				//TODO Fast recovery and timeouts
 			}
 			if(dupAcks >= 3 && (state == "SS" || state == "CA")){
 				state = "FR";
 				ssthresh = max(cwnd/2, (int) MSS);
 				cwnd = ssthresh + 3 * MSS;
+				resendPacket(sockfd, dataSent - (int)getUnackedBytes()); //retransmit packet
 			}
-
 		}
 
 		cout << "Receiving packet " << ackNum << " laskAcked " << lastAckedPacket << endl;
@@ -160,10 +165,34 @@ public:
 		}
 		return seqNum - lastAckedPacket; //numbers didnt loop around
 	}
+
+	void sendDataPacketsThread(int sockfd){
+		char* data = fileBytes.data();
+		while(dataSent < totalData){
+			if(totalData - dataSent < MSS){
+				sendPacket(sockfd,data + dataSent,totalData - dataSent,0,1,0);
+				dataSent += totalData - dataSent;
+			} else {
+				sendPacket(sockfd,data + dataSent,MSS,0,1,0);
+				dataSent += MSS;
+			}
+		}
+	}
+	void resendPacket(int sockfd, int index){
+		char* data = fileBytes.data();
+		if(totalData - index < MSS){
+			sendPacket(sockfd,data + index,totalData - index,0,1,0);
+		} else {
+			sendPacket(sockfd,data + index,MSS,0,1,0);
+		}
+	}
 };
 
 void sendDataPacketsThread(int clientSockfd, ServerState* serverState, string fileDir);
 void recvPacketsThread(int clientSockfd, ServerState* serverState);
+void doSendPackets(int sockfd, ServerState* serverState){
+	serverState->sendDataPacketsThread(sockfd);
+}
 
 
 
@@ -210,25 +239,8 @@ int main(int argc, char *argv[])
 		return 2;
 	}
 
-/*
-	char buf[10];
-	memset(buf, 0, 10);
-	struct sockaddr* addr2 = new sockaddr;
-	socklen_t fromlen;
-	cout<<"waiting"<<endl;
-	recvfrom(sockfd, buf, 10, 0, addr2, &fromlen);
-	cout<<"response"<<endl;
-	cout<<buf<<endl;
-
-	cout << "family "<< addr2->sa_family<<endl;
-	cout << "data "<< addr2->sa_data[2]<<endl;
-	string msg = "bye";
-	sendto(sockfd, msg.c_str(),msg.size(),0,addr2,fromlen);
-	*/
-
-
 	// TCP state variables
-	ServerState* serverState = new ServerState;
+	ServerState* serverState = new ServerState(fileDir);
 	bool runServer = true;
 
 
@@ -248,7 +260,7 @@ int main(int argc, char *argv[])
 		//Send data packet
 		//serverState.sendPacket(clientSockfd,fileBytes.data(),fileBytes.size(), 0, 1, 0);
 
-		std::thread sendThread(sendDataPacketsThread, sockfd, serverState, fileDir);
+		std::thread sendThread(doSendPackets, sockfd, serverState);
 		sendThread.detach();
 
 		recvPacketsThread(sockfd, serverState);
@@ -279,21 +291,7 @@ void recvPacketsThread(int sockfd, ServerState* serverState){
 	}
 }
 
-void sendDataPacketsThread(int sockfd, ServerState* serverState, string fileDir){
-	std::vector<char> fileBytes = getFileBuffer(fileDir);
-	int dataSent = 0;
-	char* data = fileBytes.data();
-	int totalData = fileBytes.size();
-	while(dataSent < totalData){
-		if(totalData - dataSent < serverState->MSS){
-			serverState->sendPacket(sockfd,data + dataSent,totalData - dataSent,0,1,0);
-			dataSent += totalData - dataSent;
-		} else {
-			serverState->sendPacket(sockfd,data + dataSent,serverState->MSS,0,1,0);
-			dataSent += serverState->MSS;
-		}
-	}
-}
+
 
 string getIP(string host){
 	struct addrinfo hints;
