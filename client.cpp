@@ -38,7 +38,7 @@ public:
 	const size_t ONE = 1;
 	const size_t MAX_SEQ_NUM = 30720;
 	uint16_t seqNum, ackNum, windowSize = 15*MSS, lastAckedPacket;
-	size_t MAX_MSG_SIZE = MSS + Packet::HEADERSIZE; //TODO fix
+	size_t MAX_MSG_SIZE = MSS + Packet::HEADERSIZE;
 	std::mutex writeLock;
 
 	int retrans = 500; //ms
@@ -60,12 +60,13 @@ public:
 		//only increment ack if its the packet we expected
 		if(ackNum == recv.getSeqNum()){
 			ackNum = (recv.getSeqNum() + max(recv.getDataSize(), ONE)) % MAX_SEQ_NUM;
-			//only write if if the packet we expected TODO: fix
 			if(recv.getDataSize() > 0){
 				writeLock.lock();
 				recv.writeToFile(filePath);
 				writeLock.unlock();
 			}
+		} else {
+			// TODO: save out of order packets, deal with writing them to file once we have all of them
 		}
 		void* dummy = 0;
 		cout << "Receiving packet " << ackNum << " length " << recv.getDataSize() << endl;

@@ -26,6 +26,7 @@ using std::ios;
 using std::ifstream;
 using std::vector;
 using std::max;
+using std::min;
 
 vector<char> getFileBuffer(string filePath);
 string getIP(string host);
@@ -37,13 +38,18 @@ public:
 	const size_t ONE = 1;
 	const size_t MAX_SEQ_NUM = 30720;
 	uint16_t seqNum, ackNum, windowSize = MSS * 15, cwnd = MSS, ssthresh = MSS * 15, clientWindowSize = 1024, lastAckedPacket;
+	uint16_t prevAck;
 	//size_t MAX_MSG_SIZE = MSS + Packet::HEADERSIZE;
 	size_t MAX_ACK_SIZE = Packet::HEADERSIZE;
+	string state; // SS, CA, FR <- allowable states
+	int dupAcks;
 
 	int retrans = 500; //ms
 	ServerState(){
-		seqNum = 0;//TODO random, deal with acks looping around
+		seqNum = 0;//TODO random
 		lastAckedPacket = seqNum;
+		dupAcks = 0;
+		state = "SS";
 	}
 	//returns latest ack of the packet recvd
 	uint16_t recvPacket(int clientSockfd){
@@ -51,12 +57,13 @@ public:
 		int bytesRecved = 0;
 
 		memset(buf, 0, MAX_ACK_SIZE);
+		//Receive a packet
 		bytesRecved = recv(clientSockfd, buf, MAX_ACK_SIZE, 0);
 		if (bytesRecved == -1) {
 			perror("recv");
 		}
 		Packet recv(buf, bytesRecved);
-		cout << "recv " << recv.getSeqNum() << " size " << recv.getDataSize();
+		//cout << "recv " << recv.getSeqNum() << " size " << recv.getDataSize();
 		ackNum = (recv.getSeqNum() + max(recv.getDataSize(), ONE)) % MAX_SEQ_NUM;
 
 		// Deal with updating last Ack when ack numbers loop around
@@ -66,10 +73,44 @@ public:
 			lastAckedPacket = max(lastAckedPacket, recv.getAckNum());
 		}
 
-
 		clientWindowSize = recv.getWindowSize();
-		cout << "Receiving packet " << ackNum << " laskAcked " << lastAckedPacket << endl;
 
+		//update cwnd
+		//new ack
+		if(lastAckedPacket != prevAck){
+			if(state == "SS"){
+				cwnd += MSS;
+				dupAcks = 0;
+				if(cwnd >= ssthresh){
+					state = "CA";
+				}
+			} else if(state == "CA") {
+				cwnd += MSS * MSS / cwnd;
+				dupAcks = 0;
+			} else if(state == "FR") {
+				dupAcks = 0;
+				cwnd = ssthresh;
+				//TODO Fast recovery and timeouts
+			}
+		} else if (lastAckedPacket == prevAck){ // dup ack
+			if(state == "SS"){
+				dupAcks++;
+			} else if(state == "CA") {
+				dupAcks++;
+			} else if(state == "FR") {
+				cwnd += MSS;
+				//TODO Fast recovery and timeouts
+			}
+			if(dupAcks >= 3 && (state == "SS" || state == "CA")){
+				state = "FR";
+				ssthresh = cwnd/2;
+				cwnd = ssthresh + 3 * MSS;
+			}
+
+		}
+
+		cout << "Receiving packet " << ackNum << " laskAcked " << lastAckedPacket << endl;
+		prevAck = lastAckedPacket;
 		return lastAckedPacket;
 	}
 	//returns seqNum next packet to send
@@ -80,8 +121,8 @@ public:
 		size_t unackedBytes = getUnackedBytes();
 		//If we have too many unacked packets, wait.
 		//cout << "Unacked bytes... " << unackedBytes  << " seqNum "<< seqNum << " last acked " << lastAckedPacket << endl;
-		while(unackedBytes > clientWindowSize){
-			usleep(1000);
+		while(unackedBytes > min(clientWindowSize, cwnd)){
+			usleep(10000);
 			unackedBytes = getUnackedBytes();
 			//cout << "Waiting... " << bytesOutstanding << endl;
 		}
