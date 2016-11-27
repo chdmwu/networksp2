@@ -50,6 +50,7 @@ public:
 		lastAckedPacket = seqNum;
 		sockfd = sockfd_;
 		serverAddr = serverAddr_;
+		serverAddrSize = sizeof(*serverAddr);
 	}
 
 	void recvPacket(string filePath = ""){
@@ -64,6 +65,7 @@ public:
 		Packet recv(buf, bytesRecved);
 		//only increment ack if its the packet we expected
 		if(ackNum == recv.getSeqNum()){
+
 			ackNum = (recv.getSeqNum() + max(recv.getDataSize(), ONE)) % MAX_SEQ_NUM;
 			if(recv.getDataSize() > 0){
 				writeLock.lock();
@@ -104,7 +106,7 @@ void recvDataPacketThread(string fileName, ClientState* clientState);
 
 
 int main(int argc, char *argv[]){
-	string fileName = "./testout.jpg";
+	string fileName = "./testout.txt";
 
 	//Delete old file, if it exists
 	std::remove(fileName.c_str());
@@ -150,23 +152,34 @@ int main(int argc, char *argv[]){
 	serverAddr->sin_addr.s_addr = inet_addr(ip.c_str());
 	memset(serverAddr->sin_zero, '\0', sizeof(serverAddr->sin_zero));
 
-	string msg = "hello";
-	sendto(sockfd, msg.c_str(), msg.size(), 0, (sockaddr*) serverAddr, sizeof(*serverAddr));
 
+	string msg = "hello";
+	//sendto(sockfd, msg.c_str(), msg.size(), 0, (sockaddr*) serverAddr, sizeof(*serverAddr));
+
+/*
+	char buf[10];
+	memset(buf, 0, 10);
+	struct sockaddr* addr2 = new sockaddr;
+	socklen_t fromlen;
+	cout<<"waiting"<<endl;
+	recvfrom(sockfd, buf, 10, 0, (sockaddr*) serverAddr, &fromlen);
+	cout<<"response"<<endl;
+	cout<<buf<<endl;
+*/
 
 	//TCP State variables
-	//ClientState* clientState = new ClientState(sockfd, serverAddr);
+	ClientState* clientState = new ClientState(sockfd, serverAddr);
 	void* dummy = 0;
 
-	//clientState->sendPacket(dummy,0,1,0,0);
+	clientState->sendPacket(dummy,0,1,0,0);
 
 
 	//Ready to recv data
-	//recvDataPacketThread(fileName,clientState);
+	recvDataPacketThread(fileName,clientState);
 
 
-	//delete(clientState);
-	//close(sockfd);
+	delete(clientState);
+	close(sockfd);
 	cout << "Connection closed..." << endl;
 }
 

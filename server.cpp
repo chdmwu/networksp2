@@ -43,7 +43,7 @@ public:
 	size_t MAX_ACK_SIZE = Packet::HEADERSIZE;
 	string state; // SS, CA, FR <- allowable states
 	int dupAcks;
-	struct sockaddr_in* clientAddr;
+	struct sockaddr clientAddr;
 	socklen_t clientAddrSize;
 	int retrans = 500; //ms
 	ServerState(){
@@ -51,10 +51,8 @@ public:
 		lastAckedPacket = seqNum;
 		dupAcks = 0;
 		state = "SS";
-		clientAddr = new sockaddr_in;
 	}
 	~ServerState(){
-		delete(clientAddr);
 	}
 	//returns latest ack of the packet recvd
 	uint16_t recvPacket(int sockfd){
@@ -62,11 +60,17 @@ public:
 		int bytesRecved = 0;
 
 		memset(buf, 0, MAX_ACK_SIZE);
-
+		struct sockaddr addr2;
+		//socklen_t fromlen;
 		//Receive a packet
-		bytesRecved = recvfrom(sockfd, buf, MAX_ACK_SIZE, 0, (sockaddr*) clientAddr, &clientAddrSize);
+		clientAddrSize = sizeof(clientAddr);
+		bytesRecved = recvfrom(sockfd, buf, MAX_ACK_SIZE, 0, &addr2, &clientAddrSize);
+		memcpy(&clientAddr,&addr2,clientAddrSize);
 		if (bytesRecved == -1) {
 			perror("recv");
+		}
+		if(bytesRecved < MAX_ACK_SIZE){
+			return 0;
 		}
 		Packet recv(buf, bytesRecved);
 		//cout << "recv " << recv.getSeqNum() << " size " << recv.getDataSize();
@@ -133,7 +137,7 @@ public:
 			//cout << "Waiting... " << bytesOutstanding << endl;
 		}
 		//pSend.sendPacket(clientSockfd);
-		int bytes = sendto(sockfd, pSend.getRawPacketPointer(), pSend.getRawPacketSize(), 0, (sockaddr*) clientAddr, clientAddrSize);
+		int bytes = sendto(sockfd, pSend.getRawPacketPointer(), pSend.getRawPacketSize(), 0, &clientAddr, clientAddrSize);
 		if(bytes == -1){
 			std::cerr << "ERROR send" << endl;
 		}
@@ -206,32 +210,33 @@ int main(int argc, char *argv[])
 		return 2;
 	}
 
-	// set socket to listen status
-	/**
-	if (listen(sockfd, 1) == -1) {
-		perror("listen");
-		return 3;
-	}*/
+/*
 	char buf[10];
 	memset(buf, 0, 10);
-	struct sockaddr addr2;
-	socklen_t clientAddrSize;
+	struct sockaddr* addr2 = new sockaddr;
 	socklen_t fromlen;
 	cout<<"waiting"<<endl;
-	recvfrom(sockfd, buf, 10, 0, &addr2, &fromlen);
+	recvfrom(sockfd, buf, 10, 0, addr2, &fromlen);
 	cout<<"response"<<endl;
 	cout<<buf<<endl;
 
-	bool runServer = true;
+	cout << "family "<< addr2->sa_family<<endl;
+	cout << "data "<< addr2->sa_data[2]<<endl;
+	string msg = "bye";
+	sendto(sockfd, msg.c_str(),msg.size(),0,addr2,fromlen);
+	*/
+
+
 	// TCP state variables
 	ServerState* serverState = new ServerState;
+	bool runServer = true;
 
 
-	/**
 	while(runServer){
+
 		void* dummy = 0;
 
-
+		//serverState->recvPacket(sockfd); //WTF????
 		//Recving SYN
 		serverState->recvPacket(sockfd);
 		//Sending SYN ACK
@@ -248,7 +253,7 @@ int main(int argc, char *argv[])
 
 		recvPacketsThread(sockfd, serverState);
 
-	}*/
+	}
 
 	delete(serverState);
 }
