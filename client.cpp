@@ -40,19 +40,39 @@ public:
 	uint16_t seqNum, ackNum, windowSize = 15*MSS, lastAckedPacket;
 	size_t MAX_MSG_SIZE = MSS + Packet::HEADERSIZE;
 	std::mutex writeLock;
+	int sockfd;
+	struct sockaddr_in* serverAddr;
+	socklen_t serverAddrSize;
 
 	int retrans = 500; //ms
-	ClientState(){
+	ClientState(string ip, int port){
 		seqNum = 0;//TODO random
 		lastAckedPacket = seqNum;
+		sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+		struct sockaddr_in* serverAddr = new sockaddr_in;
+		serverAddr->sin_family = AF_INET;
+		serverAddr->sin_port = htons(port);     // short, network byte order
+		serverAddr->sin_addr.s_addr = inet_addr(ip.c_str());
+		memset(serverAddr->sin_zero, '\0', sizeof(serverAddr->sin_zero));
+
+		struct sockaddr_in clientAddr;
+		socklen_t clientAddrLen = sizeof(clientAddr);
+		if (getsockname(sockfd, (struct sockaddr *)&clientAddr, &clientAddrLen) == -1) {
+			perror("getsockname");
+		}
+
+		char ipstr[INET_ADDRSTRLEN] = {'\0'};
+		inet_ntop(clientAddr.sin_family, &clientAddr.sin_addr, ipstr, sizeof(ipstr));
+		std::cout << "Set up a connection from: " << ipstr << ":" <<
+				ntohs(clientAddr.sin_port) << std::endl;
 	}
 
-	void recvPacket(int sockfd, string filePath = ""){
+	void recvPacket(string filePath = ""){
 		void* buf[MAX_MSG_SIZE];
 		int bytesRecved = 0;
 
 		memset(buf, 0, MAX_MSG_SIZE);
-		bytesRecved = recv(sockfd, buf, MAX_MSG_SIZE, 0);
+		bytesRecved = recvfrom(sockfd, buf, MAX_MSG_SIZE, 0, (sockaddr*) serverAddr, &serverAddrSize);
 		if (bytesRecved == -1) {
 			perror("recv");
 		}
@@ -72,12 +92,16 @@ public:
 		cout << "Receiving packet " << ackNum << " length " << recv.getDataSize() << endl;
 
 		// Send ack for this packet
-		this->sendPacket(sockfd, dummy, 0, 0, 1, 0);
+		this->sendPacket(dummy, 0, 0, 1, 0);
 
 	}
-	void sendPacket(int sockfd, void* buf, size_t size, bool syn, bool ack, bool fin){
+	void sendPacket(void* buf, size_t size, bool syn, bool ack, bool fin){
 		Packet pSend(seqNum, ackNum, windowSize, syn, ack, fin, buf, size);
-		pSend.sendPacket(sockfd);
+		//pSend.sendPacket(sockfd);
+		int bytes = sendto(sockfd, pSend.getRawPacketPointer(), pSend.getRawPacketSize(), 0, (sockaddr*) serverAddr, serverAddrSize);
+		if(bytes == -1){
+			std::cerr << "ERROR send" << endl;
+		}
 		cout << "Sending packet " << seqNum << " acking " << ackNum;
 		if(syn){
 			cout << " " << "SYN";
@@ -91,7 +115,7 @@ public:
 	}
 };
 
-void recvDataPacketThread(int sockfd, string fileName, ClientState* clientState);
+void recvDataPacketThread(string fileName, ClientState* clientState);
 
 
 int main(int argc, char *argv[]){
@@ -106,37 +130,15 @@ int main(int argc, char *argv[]){
 
 
 	string ip = getIP(hostname);
-	int sockfd = socket(AF_INET, SOCK_STREAM, 0);
-	struct sockaddr_in serverAddr;
-	serverAddr.sin_family = AF_INET;
-	serverAddr.sin_port = htons(port);     // short, network byte order
-	serverAddr.sin_addr.s_addr = inet_addr(ip.c_str());
-	memset(serverAddr.sin_zero, '\0', sizeof(serverAddr.sin_zero));
-	if (connect(sockfd, (struct sockaddr *)&serverAddr, sizeof(serverAddr)) == -1) {
-		perror("connect");
-		return 2;
-	}
-	cout << "Connection established..." << endl;
 
-	struct sockaddr_in clientAddr;
-	socklen_t clientAddrLen = sizeof(clientAddr);
-	if (getsockname(sockfd, (struct sockaddr *)&clientAddr, &clientAddrLen) == -1) {
-		perror("getsockname");
-		return 3;
-	}
-
-	char ipstr[INET_ADDRSTRLEN] = {'\0'};
-	inet_ntop(clientAddr.sin_family, &clientAddr.sin_addr, ipstr, sizeof(ipstr));
-	std::cout << "Set up a connection from: " << ipstr << ":" <<
-			ntohs(clientAddr.sin_port) << std::endl;
 
 	//TCP State variables
-	ClientState* clientState = new ClientState;
+	ClientState* clientState = new ClientState(ip, port);
 	void* dummy = 0;
 
 	//3 way handshake
 	//SEND SYN
-	clientState->sendPacket(sockfd,dummy,0,1,0,0);
+	clientState->sendPacket(dummy,0,1,0,0);
 	//RECV SYN ACK
 	//clientState->recvPacket(sockfd);
 	//SEND ACK
@@ -149,17 +151,17 @@ int main(int argc, char *argv[]){
 	//std::thread recvDataThread(recvDataPacketThread, sockfd, fileName, clientState);
 	//recvDataThread.detach();
 
-	recvDataPacketThread(sockfd,fileName,clientState);
+	recvDataPacketThread(fileName,clientState);
 
 
 	delete(clientState);
-	close(sockfd);
+	//close(sockfd);
 	cout << "Connection closed..." << endl;
 }
 
-void recvDataPacketThread(int sockfd, string fileName, ClientState* clientState){
+void recvDataPacketThread(string fileName, ClientState* clientState){
 	while(true){ //TODO fin
-		clientState->recvPacket(sockfd,fileName);
+		clientState->recvPacket(fileName);
 	}
 }
 
