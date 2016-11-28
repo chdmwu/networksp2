@@ -45,7 +45,7 @@ public:
 		copyInt16(seqNum, buf);
 		copyInt16(ackNum, ((char*) buf)+2);
 		copyInt16(windowSize, ((char*) buf)+4);
-		int16_t header4 = 0;
+		uint16_t header4 = 0;
 		
 		header4 = header4 | (fin << 0);
 		header4 = header4 | (syn << 1);
@@ -82,39 +82,39 @@ public:
 	uint16_t getSeqNum(){
 		void* temp[2];
 		std::memcpy(temp, buf, 2);
-		int16_t* reint = reinterpret_cast<int16_t*>(temp);
+		uint16_t* reint = reinterpret_cast<uint16_t*>(temp);
 		return *reint;
 	}
 	
 	uint16_t getAckNum(){
 		void* temp[2];
 		std::memcpy(temp, ((char*)buf)+2, 2);
-		int16_t* reint = reinterpret_cast<int16_t*>(temp);
+		uint16_t* reint = reinterpret_cast<uint16_t*>(temp);
 		return *reint;
 	}
 	uint16_t getWindowSize(){
 		void* temp[2];
 		std::memcpy(temp, ((char*)buf)+4, 2);
-		int16_t* reint = reinterpret_cast<int16_t*>(temp);
+		uint16_t* reint = reinterpret_cast<uint16_t*>(temp);
 		return *reint;
 	}
 	bool getFin(){
 		void* temp[2];
 		std::memcpy(temp, ((char*)buf)+6, 2);
-		int16_t* reint = reinterpret_cast<int16_t*>(temp);
+		uint16_t* reint = reinterpret_cast<uint16_t*>(temp);
 		return (*reint & 1);
 	}
 	
 	bool getSyn(){
 		void* temp[2];
 		std::memcpy(temp, ((char*)buf)+6, 2);
-		int16_t* reint = reinterpret_cast<int16_t*>(temp);
+		uint16_t* reint = reinterpret_cast<uint16_t*>(temp);
 		return (*reint & (1 << 1));
 	}
 	bool getAck(){
 		void* temp[2];
 		std::memcpy(temp, ((char*)buf)+6, 2);
-		int16_t* reint = reinterpret_cast<int16_t*>(temp);
+		uint16_t* reint = reinterpret_cast<uint16_t*>(temp);
 		return (*reint & (1 << 2));
 	}
 	

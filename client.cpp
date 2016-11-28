@@ -44,8 +44,9 @@ public:
 	struct sockaddr_in* serverAddr;
 	socklen_t serverAddrSize;
 	vector<Packet*> outOfOrderPackets;
+    bool establishedTCP = false;
+    bool finished = false;
 
-	int retrans = 500; //ms
 	ClientState(int sockfd_, sockaddr_in* serverAddr_){
 		seqNum = 0;//TODO random
 		lastAckedPacket = seqNum;
@@ -69,30 +70,37 @@ public:
 		if(ackNum == recv->getSeqNum()){
 
 			ackNum = (recv->getSeqNum() + max(recv->getDataSize(), ONE)) % MAX_SEQ_NUM;
-			writeLock.lock();
-			recv->writeToFile(filePath);
-			writeLock.unlock();
-			delete(recv); // Delete packets after they are written to file
+            if (recv->getSyn()) {
+                seqNum = (seqNum + ONE) % MAX_SEQ_NUM;
+                establishedTCP = true;
+            }
+            if (establishedTCP) {
+                writeLock.lock();
+                recv->writeToFile(filePath);
+                writeLock.unlock();
+                delete (recv); // Delete packets after they are written to file
 
-			if(outOfOrderPackets.size() > 0){
-				// try to write out of order packets, now that we got a new packet
-				// this function should update the ack accordingly ? untested
-				tryWriteOutOfOrderPackets(filePath);
-			}
-
+                if (outOfOrderPackets.size() > 0) {
+                    // try to write out of order packets, now that we got a new packet
+                    // this function should update the ack accordingly ? untested
+                    tryWriteOutOfOrderPackets(filePath);
+                }
+                cout << "Receiving packet " << ackNum << " length " << bytesRecved - 8 << endl;
+            }
 		} else {
+            cout << "Packet out of order packet " << recv->getSeqNum() << " length " << bytesRecved - 8<< endl;
 			// save out of order packets, deal with writing them to file when we get others
 			outOfOrderPackets.push_back(recv);
 		}
 		void* dummy = 0;
-		cout << "Receiving packet " << ackNum << " length " << bytesRecved - 8<< endl;
+
 
 		// Send ack for this packet
 		this->sendPacket(dummy, 0, 0, 1, 0);
 
 	}
 	void sendPacket(void* buf, size_t size, bool syn, bool ack, bool fin){
-		Packet pSend(seqNum, ackNum, windowSize, syn, ack, fin, buf, size);
+		Packet pSend(seqNum, ackNum, windowSize, ack, syn, fin, buf, size);
 		//pSend.sendPacket(sockfd);
 		int bytes = sendto(sockfd, pSend.getRawPacketPointer(), pSend.getRawPacketSize(), 0, (sockaddr*) serverAddr, serverAddrSize);
 		if(bytes == -1){
@@ -106,8 +114,7 @@ public:
 			cout << " " << "FIN";
 		}
 		cout << endl;
-
-		seqNum = (seqNum + max(pSend.getDataSize(), ONE)) % MAX_SEQ_NUM;
+        seqNum = (seqNum + pSend.getDataSize()) % MAX_SEQ_NUM;
 	}
 
 	void tryWriteOutOfOrderPackets(string filePath){
@@ -121,6 +128,7 @@ public:
 				writeLock.unlock();
 				outOfOrderPackets.erase(outOfOrderPackets.begin() + ii);
 				delete(recv); //delete packets after they are written to file
+                success = true;
 				break;
 			}
 		}
@@ -134,55 +142,58 @@ void recvDataPacketThread(string fileName, ClientState* clientState);
 
 
 int main(int argc, char *argv[]){
-	string fileName = "./testout.txt";
+	string fileName = "./received.data";
 
 	//Delete old file, if it exists
 	std::remove(fileName.c_str());
 	string hostname = "localhost";
 	int port = 4000;
 
+	string client_ip = "10.0.0.2";
+    string server_ip = "10.0.0.1";
 
-
-
-	string ip = getIP(hostname);
+    if (argc>1 && string(argv[1])=="localhost"){
+        client_ip = getIP(hostname);
+        server_ip = getIP(hostname);
+    }
 	int sockfd;
-	sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
 
-	struct sockaddr_in* clientAddr = new sockaddr_in;;
-	clientAddr->sin_family = AF_INET;
-	clientAddr->sin_port = htons(4001);     // short, network byte order, any port
-	clientAddr->sin_addr.s_addr = inet_addr(ip.c_str());
-	memset(clientAddr->sin_zero, '\0', sizeof(clientAddr->sin_zero));
-	/*
-	if (getsockname(sockfd, (struct sockaddr *) clientAddr, &clientAddrLen) == -1) {
-		perror("getsockname");
-	}*/
-	if (bind(sockfd, (struct sockaddr*) clientAddr, sizeof(*clientAddr)) == -1) {
-		perror("bind");
-	}
-
-
-	char ipstr[INET_ADDRSTRLEN] = {'\0'};
-	inet_ntop(clientAddr->sin_family, &clientAddr->sin_addr, ipstr, sizeof(ipstr));
-	std::cout << "Set up a connection from: " << ipstr << ":" <<
-			ntohs(clientAddr->sin_port) << std::endl;
-
-	/*
-	struct sockaddr_in* serverAddr = new sockaddr_in;
-	serverAddr->sin_family = AF_INET;
-	serverAddr->sin_port = htons(port);     // short, network byte order
-	serverAddr->sin_addr.s_addr = inet_addr(ip.c_str());
-	memset(serverAddr->sin_zero, '\0', sizeof(serverAddr->sin_zero));
-	*/
-	struct sockaddr_in* serverAddr = new sockaddr_in;
-	serverAddr->sin_family = AF_INET;
-	serverAddr->sin_port = htons(4000);     // short, network byte order
-	serverAddr->sin_addr.s_addr = inet_addr(ip.c_str());
-	memset(serverAddr->sin_zero, '\0', sizeof(serverAddr->sin_zero));
+    struct sockaddr_in* clientAddr = new sockaddr_in;;
+    clientAddr->sin_family = AF_INET;
+    clientAddr->sin_port = htons(4001);     // short, network byte order, any port
+    clientAddr->sin_addr.s_addr = inet_addr(client_ip.c_str());
+    memset(clientAddr->sin_zero, '\0', sizeof(clientAddr->sin_zero));
+    /*
+    if (getsockname(sockfd, (struct sockaddr *) clientAddr, &clientAddrLen) == -1) {
+        perror("getsockname");
+    }*/
+    if (bind(sockfd, (struct sockaddr*) clientAddr, sizeof(*clientAddr)) == -1) {
+        perror("bind");
+    }
 
 
-	string msg = "hello";
-	//sendto(sockfd, msg.c_str(), msg.size(), 0, (sockaddr*) serverAddr, sizeof(*serverAddr));
+    char ipstr[INET_ADDRSTRLEN] = {'\0'};
+    inet_ntop(clientAddr->sin_family, &clientAddr->sin_addr, ipstr, sizeof(ipstr));
+    std::cout << "Set up a connection from: " << ipstr << ":" <<
+              ntohs(clientAddr->sin_port) << std::endl;
+
+    /*
+    struct sockaddr_in* serverAddr = new sockaddr_in;
+    serverAddr->sin_family = AF_INET;
+    serverAddr->sin_port = htons(port);     // short, network byte order
+    serverAddr->sin_addr.s_addr = inet_addr(ip.c_str());
+    memset(serverAddr->sin_zero, '\0', sizeof(serverAddr->sin_zero));
+    */
+    struct sockaddr_in* serverAddr = new sockaddr_in;
+    serverAddr->sin_family = AF_INET;
+    serverAddr->sin_port = htons(4000);     // short, network byte order
+    serverAddr->sin_addr.s_addr = inet_addr(server_ip.c_str());
+    memset(serverAddr->sin_zero, '\0', sizeof(serverAddr->sin_zero));
+
+
+    string msg = "hello";
+    //sendto(sockfd, msg.c_str(), msg.size(), 0, (sockaddr*) serverAddr, sizeof(*serverAddr));
 
 /*
 	char buf[10];
@@ -195,20 +206,35 @@ int main(int argc, char *argv[]){
 	cout<<buf<<endl;
 */
 
-	//TCP State variables
-	ClientState* clientState = new ClientState(sockfd, serverAddr);
-	void* dummy = 0;
-
+    //TCP State variables
+    ClientState* clientState = new ClientState(sockfd, serverAddr);
+    void* dummy = 0;
 	clientState->sendPacket(dummy,0,1,0,0);
+    std::clock_t start;
+    double duration;
 
+    start = std::clock();
+
+    std::thread rcvThread(recvDataPacketThread, fileName, clientState);
+    rcvThread.detach();
+
+    while (!clientState->establishedTCP){
+        duration = ( std::clock() - start ) / (double) CLOCKS_PER_SEC;
+        if (duration > 0.5) {
+            clientState->sendPacket(dummy,0,1,0,0);
+            start = std::clock();
+        }
+    }
+    while (!clientState->finished){
+        continue;
+    }
 
 	//Ready to recv data
-	recvDataPacketThread(fileName,clientState);
 
 
-	delete(clientState);
-	close(sockfd);
-	cout << "Connection closed..." << endl;
+    delete (clientState);
+    close(sockfd);
+    cout << "Connection closed..." << endl;
 }
 
 void recvDataPacketThread(string fileName, ClientState* clientState){
