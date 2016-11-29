@@ -48,7 +48,7 @@ public:
     bool finished = false;
 
 	ClientState(int sockfd_, sockaddr_in* serverAddr_){
-		seqNum = 0;//TODO random
+		seqNum = rand() % MAX_SEQ_NUM;//TODO random
 		lastAckedPacket = seqNum;
 		sockfd = sockfd_;
 		serverAddr = serverAddr_;
@@ -67,36 +67,54 @@ public:
 		//Packet recv(buf, bytesRecved);
 		Packet* recv = new Packet(buf, bytesRecved);
 		//only increment ack if its the packet we expected
-		if(ackNum == recv->getSeqNum()){
+        cout << "Receiving packet " << recv->getSeqNum() << endl;
+        if (recv->getSyn() && !establishedTCP) {
+            seqNum = (seqNum + ONE) % MAX_SEQ_NUM;
+            ackNum = (recv->getSeqNum()+ONE) % MAX_SEQ_NUM;
+            establishedTCP = true;
 
-			ackNum = (recv->getSeqNum() + max(recv->getDataSize(), ONE)) % MAX_SEQ_NUM;
-            if (recv->getSyn()) {
-                seqNum = (seqNum + ONE) % MAX_SEQ_NUM;
-                establishedTCP = true;
-            }
-            if (establishedTCP) {
-                writeLock.lock();
-                recv->writeToFile(filePath);
-                writeLock.unlock();
-                delete (recv); // Delete packets after they are written to file
+        }
+        if (establishedTCP && !recv->getSyn()) {
+            if (ackNum == recv->getSeqNum()) {
+                ackNum = (recv->getSeqNum() + recv->getDataSize()) % MAX_SEQ_NUM;
+                if (establishedTCP) {
+                    writeLock.lock();
+                    recv->writeToFile(filePath);
+                    writeLock.unlock();
 
-                if (outOfOrderPackets.size() > 0) {
-                    // try to write out of order packets, now that we got a new packet
-                    // this function should update the ack accordingly ? untested
-                    tryWriteOutOfOrderPackets(filePath);
+
+                    if (outOfOrderPackets.size() > 0) {
+                        // try to write out of order packets, now that we got a new packet
+                        // this function should update the ack accordingly ? untested
+                        tryWriteOutOfOrderPackets(filePath);
+                    }
+
+                    delete (recv); // Delete packets after they are written to file
                 }
-                cout << "Receiving packet " << ackNum << " length " << bytesRecved - 8 << endl;
+            } else {
+                bool new_packet = true;
+                for (int ii = 0; ii < outOfOrderPackets.size(); ii++) {
+                    Packet *stored_recv = outOfOrderPackets.at(ii);
+                    if (stored_recv->getSeqNum() == recv->getSeqNum()) {
+                        new_packet = false;
+                        break;
+                    }
+                }
+                // save out of order packets, deal with writing them to file when we get others
+                if (new_packet) {
+                    outOfOrderPackets.push_back(recv);
+                    //cout << "Packet out of order packet " << recv->getSeqNum() << endl;
+                    //cout << "Saved out of order packet " << outOfOrderPackets.size() << endl;
+                }
             }
-		} else {
-            cout << "Packet out of order packet " << recv->getSeqNum() << " length " << bytesRecved - 8<< endl;
-			// save out of order packets, deal with writing them to file when we get others
-			outOfOrderPackets.push_back(recv);
-		}
-		void* dummy = 0;
+
+        }
+        void* dummy = 0;
 
 
-		// Send ack for this packet
-		this->sendPacket(dummy, 0, 0, 1, 0);
+        // Send ack for this packet
+        this->sendPacket(dummy, 0, 0, 1, 0);
+
 
 	}
 	void sendPacket(void* buf, size_t size, bool syn, bool ack, bool fin){
@@ -106,7 +124,7 @@ public:
 		if(bytes == -1){
 			std::cerr << "ERROR send" << endl;
 		}
-		cout << "Sending packet " << seqNum << " acking " << ackNum;
+		cout << "Sending packet " << ackNum << "seq num" << seqNum;
 		if(syn){
 			cout << " " << "SYN";
 		}
@@ -122,7 +140,7 @@ public:
 		for(int ii=0;ii<outOfOrderPackets.size();ii++){
 			Packet* recv = outOfOrderPackets.at(ii);
 			if(recv->getSeqNum() == ackNum){
-				ackNum = (recv->getSeqNum() + max(recv->getDataSize(), ONE)) % MAX_SEQ_NUM;
+				ackNum = (recv->getSeqNum() + recv->getDataSize()) % MAX_SEQ_NUM;
 				writeLock.lock();
 				recv->writeToFile(filePath);
 				writeLock.unlock();
@@ -220,6 +238,7 @@ int main(int argc, char *argv[]){
 
     while (!clientState->establishedTCP){
         duration = ( std::clock() - start ) / (double) CLOCKS_PER_SEC;
+        //cout << "Waited " << duration << " for SYNACK reply " << endl;
         if (duration > 0.5) {
             clientState->sendPacket(dummy,0,1,0,0);
             start = std::clock();
