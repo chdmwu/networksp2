@@ -46,6 +46,8 @@ public:
 	vector<Packet*> outOfOrderPackets;
     bool establishedTCP = false;
     bool finished = false;
+    int lastSeqRecv = 0;
+    int seqCycles =0;
 
 	ClientState(int sockfd_, sockaddr_in* serverAddr_){
 		seqNum = rand() % MAX_SEQ_NUM;//TODO random
@@ -102,9 +104,13 @@ public:
                 }
                 // save out of order packets, deal with writing them to file when we get others
                 if (new_packet) {
-                    outOfOrderPackets.push_back(recv);
-                    //cout << "Packet out of order packet " << recv->getSeqNum() << endl;
-                    //cout << "Saved out of order packet " << outOfOrderPackets.size() << endl;
+                    if ((ackNum > (MAX_SEQ_NUM/2) && (recv->getSeqNum() > ackNum || recv->getSeqNum()<=ackNum-(MAX_SEQ_NUM/2)))
+                        || (ackNum <= (MAX_SEQ_NUM/2) && (recv->getSeqNum()>ackNum && recv->getSeqNum()<ackNum+(MAX_SEQ_NUM/2) )))
+					{
+                        outOfOrderPackets.push_back(recv);
+                        cout << "Packet out of order packet " << recv->getSeqNum() << endl;
+                        cout << "Saved out of order packet " << outOfOrderPackets.size() << endl;
+                    }
                 }
             }
 
@@ -124,7 +130,7 @@ public:
 		if(bytes == -1){
 			std::cerr << "ERROR send" << endl;
 		}
-		cout << "Sending packet " << ackNum << "seq num" << seqNum;
+		cout << "Sending packet " << ackNum;
 		if(syn){
 			cout << " " << "SYN";
 		}
@@ -160,7 +166,7 @@ void recvDataPacketThread(string fileName, ClientState* clientState);
 
 
 int main(int argc, char *argv[]){
-	string fileName = "./received.data";
+	string fileName = "./received.png";
 
 	//Delete old file, if it exists
 	std::remove(fileName.c_str());

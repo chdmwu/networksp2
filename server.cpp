@@ -56,6 +56,7 @@ public:
     int seqCycles=0;
     int ackCycles=0;
     int initSeq;
+
 	ServerState(string fileDir){
         int tmp =rand();
 		seqNum = rand()%MAX_SEQ_NUM;
@@ -71,7 +72,7 @@ public:
 	}
 	//returns latest ack of the packet recvd
 	uint16_t recvPacket(int sockfd){
-		cout << "Running receiving packet" << endl;
+		//cout << "Running receiving packet" << endl;
 		void* buf[MAX_ACK_SIZE];
 		int bytesRecved = 0;
 
@@ -93,7 +94,7 @@ public:
         if (recv.getSyn()==1 && !handshake1) {
             ackNum = (recv.getSeqNum() + ONE) % MAX_SEQ_NUM;
             handshake1 = true;
-            cout << "handshake established " << endl;
+            //cout << "handshake established " << endl;
 
         }
 		else {
@@ -106,12 +107,12 @@ public:
             } else {
                 lastAckedPacket = max(lastAckedPacket, recv.getAckNum());
             }
-            cout << "Recv Seq" << recv.getSeqNum() << "Recv Ack" << recv.getAckNum()<<endl;
-            cout << "Serv Seq" << ackNum << "Serv Ack" << seqNum <<endl;
+            //cout << "Recv Seq" << recv.getSeqNum() << "Recv Ack" << recv.getAckNum()<<endl;
+            //cout << "Serv Seq" << ackNum << "Serv Ack" << seqNum <<endl;
             if (recv.getSeqNum()==ackNum && lastAckedPacket == (seqNum+ONE)%MAX_SEQ_NUM) {
                 establishedTCP = true;
                 seqNum= (seqNum + ONE) % MAX_SEQ_NUM;
-                cout << "established tcp" <<endl;
+                //cout << "established tcp" <<endl;
             }
             clientWindowSize = recv.getWindowSize();
 
@@ -128,6 +129,7 @@ public:
                                 retran_timer.erase(retran_timer.begin() + ii);
                             }
                         }
+                        cout << "retran length " << retran_timer.size() <<endl;
                     }
                     if (state == "SS") {
                         cwnd += MSS;
@@ -163,7 +165,6 @@ public:
                 cout << "State " << state << endl;
                 cout << "Receiving packet " << recv.getAckNum() << endl;
                 prevAck = lastAckedPacket;
-                unackedBytes = getUnackedBytes();
             }
         }
 		return lastAckedPacket;
@@ -181,7 +182,7 @@ public:
 
 		//If we have too many unacked packets, wait.
 		//cout << "Unacked bytes... " << unackedBytes  << " seqNum "<< seqNum << " last acked " << lastAckedPacket << endl;
-        //cout << "Unacked " << unackedBytes << " cwnd " << cwnd << endl;
+        cout << "Unacked " << unackedBytes << " cwnd " << cwnd << endl;
 
 		while(unackedBytes > min(clientWindowSize, cwnd) && !retransmit){
             //cout << "Sleeping for a while" << endl;
@@ -200,9 +201,11 @@ public:
 
             if (retransmit){
                 cout << "adding " << retran_seq << " to retran" << endl;
+                cout << "retran okay ? " << (retran_seq == retran_timer.front().first ) << endl;
                 retran_timer.push_back(std::make_pair(retran_seq,clock()));
                 cout << "removing " << retran_timer.front().first << " from retran" << endl;
                 retran_timer.erase(retran_timer.begin());
+
 
             }
             else{
@@ -215,7 +218,7 @@ public:
         if(bytes == -1){
             std::cerr << "ERROR send" << endl;
         }
-        cout << "Sending packet " << sendSeqNum << " " << cwnd << " " << ssthresh << " length " << pSend.getDataSize() << "ack num" << ackNum;
+        cout << "Sending packet " << sendSeqNum << " " << cwnd << " " << ssthresh;
         if(retransmit){
             cout << " " << "Retransmission";
         }
@@ -247,7 +250,7 @@ public:
 	void sendDataPacketsThread(int sockfd){
 		char* data = fileBytes.data();
 		while(dataSent < totalData){
-			//cout << "Data sent" << dataSent << "TotalData" <<totalData<<endl;
+			cout << "Data sent" << dataSent << "TotalData" <<totalData<<endl;
 			if(totalData - dataSent < MSS){
 				sendPacket(sockfd,data + dataSent,totalData - dataSent,0,1,0,0,0);
                 dataSent += totalData-dataSent;
@@ -285,10 +288,11 @@ public:
     }
 	void resendPacket(int sockfd, int index){
 		char* data = fileBytes.data();
-		if(totalData - index < MSS){
-			sendPacket(sockfd,data + index-1-initSeq,totalData - index,0,1,0,1,index);
+		cout << "file location" << index - initSeq -1 << endl;
+        if(totalData - (index-initSeq-1) < MSS){
+			sendPacket(sockfd,data + index-initSeq-1,totalData - (index-initSeq-1),0,1,0,1,index);
 		} else {
-			sendPacket(sockfd,data + index-1-initSeq,MSS,0,1,0,1,index);
+			sendPacket(sockfd,data + index-initSeq-1,MSS,0,1,0,1,index);
 		}
 	}
 };
@@ -390,6 +394,7 @@ int main(int argc, char *argv[])
         //Send data packet
         //serverState.sendPacket(clientSockfd,fileBytes.data(),fileBytes.size(), 0, 1, 0);
 
+        //doSendPackets(sockfd,serverState);
         std::thread sendThread(doSendPackets, sockfd, serverState);
         sendThread.detach();
         doTimeout(sockfd, serverState);
