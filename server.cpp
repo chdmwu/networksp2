@@ -182,7 +182,7 @@ public:
 
 		//If we have too many unacked packets, wait.
 		//cout << "Unacked bytes... " << unackedBytes  << " seqNum "<< seqNum << " last acked " << lastAckedPacket << endl;
-        cout << "Unacked " << unackedBytes << " cwnd " << cwnd << endl;
+        //cout << "Unacked " << unackedBytes << " cwnd " << cwnd << endl;
 
 		while(unackedBytes > min(clientWindowSize, cwnd) && !retransmit){
             //cout << "Sleeping for a while" << endl;
@@ -194,22 +194,22 @@ public:
         if (retran_timer.size()) {
             double duration;
             duration = ( std::clock() - retran_timer.front().second ) / (double) CLOCKS_PER_SEC;
-            cout << "retran head " << retran_timer.front().first << "duration " << duration << endl;
+            //cout << "retran head " << retran_timer.front().first << "duration " << duration << endl;
         }
         int bytes = sendto(sockfd, pSend.getRawPacketPointer(), pSend.getRawPacketSize(), 0, &clientAddr, clientAddrSize);
         if (establishedTCP) {
 
             if (retransmit){
-                cout << "adding " << retran_seq << " to retran" << endl;
-                cout << "retran okay ? " << (retran_seq == retran_timer.front().first ) << endl;
+                //cout << "adding " << retran_seq << " to retran" << endl;
+                //cout << "retran okay ? " << (retran_seq == retran_timer.front().first ) << endl;
                 retran_timer.push_back(std::make_pair(retran_seq,clock()));
-                cout << "removing " << retran_timer.front().first << " from retran" << endl;
+                //cout << "removing " << retran_timer.front().first << " from retran" << endl;
                 retran_timer.erase(retran_timer.begin());
 
 
             }
             else{
-                cout << "adding " << sendSeqNum+seqCycles*MAX_SEQ_NUM << " to retran" << endl;
+                //cout << "adding " << sendSeqNum+seqCycles*MAX_SEQ_NUM << " to retran" << endl;
                 retran_timer.push_back(std::make_pair(sendSeqNum+seqCycles*MAX_SEQ_NUM,clock()));
             }
 
@@ -250,7 +250,7 @@ public:
 	void sendDataPacketsThread(int sockfd){
 		char* data = fileBytes.data();
 		while(dataSent < totalData){
-			cout << "Data sent" << dataSent << "TotalData" <<totalData<<endl;
+			//cout << "Data sent" << dataSent << "TotalData" <<totalData<<endl;
 			if(totalData - dataSent < MSS){
 				sendPacket(sockfd,data + dataSent,totalData - dataSent,0,1,0,0,0);
                 dataSent += totalData-dataSent;
@@ -275,7 +275,7 @@ public:
                     duration = (std::clock() - start) / (double) CLOCKS_PER_SEC;
                     //cout << "retran dur is " << duration << endl;
                     if (duration > 0.5) {
-                        cout << "Experience timeout " << endl;
+                        //cout << "Experience timeout " << endl;
                         resendPacket(sockfd, retran_timer.front().first);
                         ssthresh = max(cwnd / 2, (int) MSS);
                         cwnd = MSS;
@@ -288,7 +288,7 @@ public:
     }
 	void resendPacket(int sockfd, int index){
 		char* data = fileBytes.data();
-		cout << "file location" << index - initSeq -1 << endl;
+		//cout << "file location" << index - initSeq -1 << endl;
         if(totalData - (index-initSeq-1) < MSS){
 			sendPacket(sockfd,data + index-initSeq-1,totalData - (index-initSeq-1),0,1,0,1,index);
 		} else {
@@ -309,7 +309,7 @@ void doTimeout(int sockfd, ServerState* serverState){
 
 int main(int argc, char *argv[])
 {
-	string fileDir = "./test.png"; // TODO change
+	string fileDir = "./test.pdf"; // TODO change
 	//string fileDir = "./files/bear.jpg"; // TODO change
 	string hostname;
 	int port;

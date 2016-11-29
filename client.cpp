@@ -108,8 +108,8 @@ public:
                         || (ackNum <= (MAX_SEQ_NUM/2) && (recv->getSeqNum()>ackNum && recv->getSeqNum()<ackNum+(MAX_SEQ_NUM/2) )))
 					{
                         outOfOrderPackets.push_back(recv);
-                        cout << "Packet out of order packet " << recv->getSeqNum() << endl;
-                        cout << "Saved out of order packet " << outOfOrderPackets.size() << endl;
+                        //cout << "Packet out of order packet " << recv->getSeqNum() << endl;
+                        //cout << "Saved out of order packet " << outOfOrderPackets.size() << endl;
                     }
                 }
             }
@@ -166,7 +166,7 @@ void recvDataPacketThread(string fileName, ClientState* clientState);
 
 
 int main(int argc, char *argv[]){
-	string fileName = "./received.png";
+	string fileName = "./received.data";
 
 	//Delete old file, if it exists
 	std::remove(fileName.c_str());
