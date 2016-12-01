@@ -16,7 +16,7 @@
 #include <vector>
 #include <algorithm>
 #include <mutex>
-
+#include <ctime>
 
 using std::string;
 using std::cout;
@@ -44,10 +44,9 @@ public:
 	struct sockaddr_in* serverAddr;
 	socklen_t serverAddrSize;
 	vector<Packet*> outOfOrderPackets;
-    bool establishedTCP = false;
-    bool finished = false;
-    int lastSeqRecv = 0;
-    int seqCycles =0;
+    bool establishedTCP;
+    bool finished;
+	bool finRcv;
 
 	ClientState(int sockfd_, sockaddr_in* serverAddr_){
 		seqNum = rand() % MAX_SEQ_NUM;//TODO random
@@ -55,6 +54,9 @@ public:
 		sockfd = sockfd_;
 		serverAddr = serverAddr_;
 		serverAddrSize = sizeof(*serverAddr);
+		establishedTCP=false;
+		finished=false;
+		finRcv=false;
 	}
 
 	void recvPacket(string filePath = ""){
@@ -76,7 +78,16 @@ public:
             establishedTCP = true;
 
         }
-        if (establishedTCP && !recv->getSyn()) {
+		if (recv -> getFin() && !finRcv){
+			cout << "received fin" <<endl;
+			finRcv = true;
+			ackNum = (recv->getSeqNum()+ONE) % MAX_SEQ_NUM;
+		}
+		if (finRcv && recv->getAckNum()==seqNum+1 && recv->getSeqNum()==ackNum){
+            cout << "received ack of fin"<<endl;
+			finished=true;
+		}
+        if (establishedTCP && !recv->getSyn() && !finRcv && !finished) {
             if (ackNum == recv->getSeqNum()) {
                 ackNum = (recv->getSeqNum() + recv->getDataSize()) % MAX_SEQ_NUM;
                 if (establishedTCP) {
@@ -119,11 +130,14 @@ public:
 
 
         // Send ack for this packet
-        this->sendPacket(dummy, 0, 0, 1, 0);
+		if (!finished){
+			this->sendPacket(dummy, 0, 0, 1, 0,0);
+		}
+
 
 
 	}
-	void sendPacket(void* buf, size_t size, bool syn, bool ack, bool fin){
+	void sendPacket(void* buf, size_t size, bool syn, bool ack, bool fin,bool retran){
 		Packet pSend(seqNum, ackNum, windowSize, ack, syn, fin, buf, size);
 		//pSend.sendPacket(sockfd);
 		int bytes = sendto(sockfd, pSend.getRawPacketPointer(), pSend.getRawPacketSize(), 0, (sockaddr*) serverAddr, serverAddrSize);
@@ -131,7 +145,10 @@ public:
 			std::cerr << "ERROR send" << endl;
 		}
 		cout << "Sending packet " << ackNum;
-		if(syn){
+		if(retran){
+            cout << " " << "Retransmission";
+        }
+        if(syn){
 			cout << " " << "SYN";
 		}
 		if(fin){
@@ -166,32 +183,35 @@ void recvDataPacketThread(string fileName, ClientState* clientState);
 
 
 int main(int argc, char *argv[]){
+    srand ( time(NULL) );
 	string fileName = "./received.data";
 
 	//Delete old file, if it exists
 	std::remove(fileName.c_str());
-	string hostname = "localhost";
+	string hostname = "10.0.0.1";
 	int port = 4000;
 
-	string client_ip = "10.0.0.2";
-    string server_ip = "10.0.0.1";
+	if (argc>1){
+		hostname=argv[1];
+	}
+	if(argc>2){
+		port =atoi(argv[2]);
+	}
+    cout <<"hostname"<<hostname<<"port"<<port<<endl;
+	string server_ip = getIP(hostname);
 
-    if (argc>1 && string(argv[1])=="localhost"){
-        client_ip = getIP(hostname);
-        server_ip = getIP(hostname);
-    }
 	int sockfd;
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
 
-    struct sockaddr_in* clientAddr = new sockaddr_in;;
+    /*struct sockaddr_in* clientAddr = new sockaddr_in;;
     clientAddr->sin_family = AF_INET;
     clientAddr->sin_port = htons(4001);     // short, network byte order, any port
     clientAddr->sin_addr.s_addr = inet_addr(client_ip.c_str());
     memset(clientAddr->sin_zero, '\0', sizeof(clientAddr->sin_zero));
-    /*
+    *//*
     if (getsockname(sockfd, (struct sockaddr *) clientAddr, &clientAddrLen) == -1) {
         perror("getsockname");
-    }*/
+    }*//*
     if (bind(sockfd, (struct sockaddr*) clientAddr, sizeof(*clientAddr)) == -1) {
         perror("bind");
     }
@@ -200,7 +220,7 @@ int main(int argc, char *argv[]){
     char ipstr[INET_ADDRSTRLEN] = {'\0'};
     inet_ntop(clientAddr->sin_family, &clientAddr->sin_addr, ipstr, sizeof(ipstr));
     std::cout << "Set up a connection from: " << ipstr << ":" <<
-              ntohs(clientAddr->sin_port) << std::endl;
+              ntohs(clientAddr->sin_port) << std::endl;*/
 
     /*
     struct sockaddr_in* serverAddr = new sockaddr_in;
@@ -211,7 +231,7 @@ int main(int argc, char *argv[]){
     */
     struct sockaddr_in* serverAddr = new sockaddr_in;
     serverAddr->sin_family = AF_INET;
-    serverAddr->sin_port = htons(4000);     // short, network byte order
+    serverAddr->sin_port = htons(port);     // short, network byte order
     serverAddr->sin_addr.s_addr = inet_addr(server_ip.c_str());
     memset(serverAddr->sin_zero, '\0', sizeof(serverAddr->sin_zero));
 
@@ -233,7 +253,7 @@ int main(int argc, char *argv[]){
     //TCP State variables
     ClientState* clientState = new ClientState(sockfd, serverAddr);
     void* dummy = 0;
-	clientState->sendPacket(dummy,0,1,0,0);
+	clientState->sendPacket(dummy,0,1,0,0,0);
     std::clock_t start;
     double duration;
 
@@ -246,26 +266,40 @@ int main(int argc, char *argv[]){
         duration = ( std::clock() - start ) / (double) CLOCKS_PER_SEC;
         //cout << "Waited " << duration << " for SYNACK reply " << endl;
         if (duration > 0.5) {
-            clientState->sendPacket(dummy,0,1,0,0);
+            clientState->sendPacket(dummy,0,1,0,0,1);
             start = std::clock();
         }
     }
-    while (!clientState->finished){
+
+    while (!clientState->finRcv){
+		usleep(10000);
         continue;
     }
+	cout<<"sending fin" << endl;
+	clientState->sendPacket(dummy,0,0,0,1,0);
+	start = std::clock();
+	/*while (!clientState->finished){
+		duration = ( std::clock() - start ) / (double) CLOCKS_PER_SEC;
+		//cout << "Waited " << duration << " for SYNACK reply " << endl;
+		if (duration > 0.5) {
+			clientState->sendPacket(dummy,0,0,0,1,1);
+			start = std::clock();
+		}
+	}*/
+	usleep(1000000);
+    clientState->finished=true;
 
-	//Ready to recv data
-
-
+	//End session
     delete (clientState);
     close(sockfd);
     cout << "Connection closed..." << endl;
 }
 
 void recvDataPacketThread(string fileName, ClientState* clientState){
-	while(true){ //TODO fin
+	while(!clientState->finished){
 		clientState->recvPacket(fileName);
 	}
+    cout << "recv thread ended"<<endl;
 }
 
 string getIP(string host){
