@@ -46,6 +46,7 @@ public:
 	vector<Packet*> outOfOrderPackets;
     bool establishedTCP;
     bool finished;
+    bool finSent;
 	bool finRcv;
 
 	ClientState(int sockfd_, sockaddr_in* serverAddr_){
@@ -56,6 +57,7 @@ public:
 		serverAddrSize = sizeof(*serverAddr);
 		establishedTCP=false;
 		finished=false;
+        finSent=false;
 		finRcv=false;
 	}
 
@@ -79,12 +81,12 @@ public:
 
         }
 		if (recv -> getFin() && !finRcv){
-			cout << "received fin" <<endl;
+			//cout << "received fin" <<endl;
 			finRcv = true;
 			ackNum = (recv->getSeqNum()+ONE) % MAX_SEQ_NUM;
 		}
-		if (finRcv && recv->getAckNum()==seqNum+1 && recv->getSeqNum()==ackNum){
-            cout << "received ack of fin"<<endl;
+		if (finRcv && finSent && recv->getAckNum()==seqNum+1 && recv->getSeqNum()==ackNum){
+            //cout << "received ack of fin"<<endl;
 			finished=true;
 		}
         if (establishedTCP && !recv->getSyn() && !finRcv && !finished) {
@@ -119,8 +121,8 @@ public:
                         || (ackNum <= (MAX_SEQ_NUM/2) && (recv->getSeqNum()>ackNum && recv->getSeqNum()<ackNum+(MAX_SEQ_NUM/2) )))
 					{
                         outOfOrderPackets.push_back(recv);
-                        //cout << "Packet out of order packet " << recv->getSeqNum() << endl;
-                        //cout << "Saved out of order packet " << outOfOrderPackets.size() << endl;
+                        cout << "Packet out of order packet " << recv->getSeqNum() << endl;
+                        cout << "Saved out of order packet " << outOfOrderPackets.size() << endl;
                     }
                 }
             }
@@ -184,7 +186,7 @@ void recvDataPacketThread(string fileName, ClientState* clientState);
 
 int main(int argc, char *argv[]){
     srand ( time(NULL) );
-	string fileName = "./received.data";
+	string fileName = "./received.png";
 
 	//Delete old file, if it exists
 	std::remove(fileName.c_str());
@@ -197,7 +199,7 @@ int main(int argc, char *argv[]){
 	if(argc>2){
 		port =atoi(argv[2]);
 	}
-    cout <<"hostname"<<hostname<<"port"<<port<<endl;
+    //cout <<"hostname"<<hostname<<"port"<<port<<endl;
 	string server_ip = getIP(hostname);
 
 	int sockfd;
@@ -275,31 +277,32 @@ int main(int argc, char *argv[]){
 		usleep(10000);
         continue;
     }
-	cout<<"sending fin" << endl;
+	//cout<<"sending fin" << endl;
 	clientState->sendPacket(dummy,0,0,0,1,0);
+    clientState->finSent=true;
 	start = std::clock();
-	/*while (!clientState->finished){
-		duration = ( std::clock() - start ) / (double) CLOCKS_PER_SEC;
-		//cout << "Waited " << duration << " for SYNACK reply " << endl;
-		if (duration > 0.5) {
-			clientState->sendPacket(dummy,0,0,0,1,1);
-			start = std::clock();
-		}
-	}*/
+	while (!clientState->finished) {
+        duration = (std::clock() - start) / (double) CLOCKS_PER_SEC;
+        //cout << "Waited " << duration << " for SYNACK reply " << endl;
+        if (duration > 0.5) {
+            clientState->sendPacket(dummy, 0, 0, 0, 1, 1);
+            start = std::clock();
+        }
+    }
 	usleep(1000000);
     clientState->finished=true;
 
 	//End session
     delete (clientState);
     close(sockfd);
-    cout << "Connection closed..." << endl;
+    //cout << "Connection closed..." << endl;
 }
 
 void recvDataPacketThread(string fileName, ClientState* clientState){
 	while(!clientState->finished){
 		clientState->recvPacket(fileName);
 	}
-    cout << "recv thread ended"<<endl;
+    //cout << "recv thread ended"<<endl;
 }
 
 string getIP(string host){

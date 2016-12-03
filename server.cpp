@@ -59,7 +59,9 @@ public:
     int cwndInc;
     bool finSent;
     bool finACK;
+    bool rcvFin;
     bool closeConnection;
+    bool timewaitDone;
 
 	ServerState(string fileDir){
         int tmp =rand();
@@ -82,7 +84,9 @@ public:
         cwndInc=0;
         finSent=false;
         finACK=false;
+        rcvFin=false;
         closeConnection=false;
+        timewaitDone=false;
 	}
 	~ServerState(){
 	}
@@ -114,27 +118,37 @@ public:
 
         }
         else if (recv.getFin()){
-            ackNum=(recv.getSeqNum() + ONE) % MAX_SEQ_NUM;
-            seqNum=(seqNum + ONE) % MAX_SEQ_NUM;
-            finACK=true;
-            closeConnection=true;
-        }
-        else if (finSent && recv.getAckNum()==seqNum+1){
-            //cout<<"Received ack of fin"<<endl;
-            finACK=true;
+            cout<<"Received fin "<<endl;
+            if (!rcvFin) {
+                ackNum = (recv.getSeqNum() + ONE) % MAX_SEQ_NUM;
+            }
+            rcvFin=true;
+            cout<<"sending lastack" << endl;
+            void* dummy = 0;
+            sendPacket(sockfd,dummy,0,0,1,0,0,0);
         }
 		else {
             ackNum = (recv.getSeqNum() +recv.getDataSize()) % MAX_SEQ_NUM;
         }
-		if (handshake2&&!finACK) {
+
+        if (finSent && recv.getAckNum()==seqNum){
+            cout<<"Received ack of fin"<<endl;
+            finACK=true;
+        }
+        if (rcvFin && finACK){
+            cout << "Closed Connection"<<endl;
+            closeConnection=true;
+        }
+		if (handshake2&&!finSent) {
             // Deal with updating last Ack when ack numbers loop around
-            if (recv.getAck() < (MAX_SEQ_NUM / 2) && lastAckedPacket > (MAX_SEQ_NUM / 2)) {
+            if (recv.getAckNum() < (MAX_SEQ_NUM / 2) && lastAckedPacket > (MAX_SEQ_NUM / 2)) {
                 lastAckedPacket = recv.getAckNum();
+                if (establishedTCP) {
+                    ackCycles += 1;
+                }
+                cout<<"ackcycle add 1"<<endl;
             } else {
                 lastAckedPacket = max(lastAckedPacket, recv.getAckNum());
-            }
-            if (lastAckedPacket+ackCycles*MAX_SEQ_NUM>initSeq+totalData){
-                finishSend=true;
             }
             //cout << "Recv Seq" << recv.getSeqNum() << "Recv Ack" << recv.getAckNum()<<endl;
             //cout << "Serv Seq" << ackNum << "Serv Ack" << seqNum <<endl;
@@ -149,8 +163,8 @@ public:
             //new ack
             if (establishedTCP) {
                 if (lastAckedPacket != prevAck) {
-                    if (lastAckedPacket < prevAck){
-                        ackCycles+=1;
+                    if (lastAckedPacket+ackCycles*MAX_SEQ_NUM>initSeq+totalData){
+                        finishSend=true;
                     }
                     if (retran_timer.size()) {
                         for (int ii = retran_timer.size() - 1; ii >= 0; ii--) {
@@ -161,7 +175,9 @@ public:
                         //cout << "retran length " << retran_timer.size() <<endl;
                     }
                     if (state == "SS") {
-                        cwnd += MSS;
+                        if (!(ackCycles==0 && lastAckedPacket==initSeq+1)) {
+                            cwnd += MSS;
+                        }
                         dupAcks = 0;
                         if (cwnd >= ssthresh) {
                             state = "CA";
@@ -195,7 +211,7 @@ public:
                         resendPacket(sockfd, lastAckedPacket+ackCycles*MAX_SEQ_NUM); //retransmit packet
                     }
                 }
-                //cout << "State " << state << endl;
+                cout << "State " << state << endl;
                 prevAck = lastAckedPacket;
             }
         }
@@ -210,20 +226,25 @@ public:
         if (retransmit) {
             sendSeqNum = retran_seq % MAX_SEQ_NUM;
         }
+        if (fin && !finSent){
+            finSent=true;
+            seqNum= (seqNum+ONE) % MAX_SEQ_NUM;
+
+        }
         Packet pSend(sendSeqNum, ackNum, windowSize, ack, syn, fin, buf, size);
 		// Deal with finding out how many bytes are unacked when ack loops around
 
 		//If we have too many unacked packets, wait.
 		//cout << "Unacked bytes... " << unackedBytes  << " seqNum "<< seqNum << " last acked " << lastAckedPacket << endl;
-        //cout << "Unacked " << unackedBytes << " cwnd " << cwnd << endl;
+        cout << "Unacked " << unackedBytes << " cwnd " << cwnd << endl;
 
 		while(unackedBytes+ MSS > min(clientWindowSize, cwnd) && !retransmit){
             //cout << "Sleeping for a while" << endl;
 			usleep(1000);
 			unackedBytes = getUnackedBytes();
-            //cout << "Waiting... " << unackedBytes << endl;
+            //cout << "Waiting... " << "lastAck" << lastAckedPacket<< "seqNum" << seqNum << "unacked" << unackedBytes << endl;
 		}
-
+        cout << "Unacked " << unackedBytes << " cwnd " << cwnd << endl;
         if (retran_timer.size()) {
             double duration;
             duration = ( std::clock() - retran_timer.front().second ) / (double) CLOCKS_PER_SEC;
@@ -274,10 +295,10 @@ public:
 	}
 
 	size_t getUnackedBytes(){
-		//if(seqNum < (MAX_SEQ_NUM/2) && lastAckedPacket > (MAX_SEQ_NUM/2)){
-		//	return seqNum + (MAX_SEQ_NUM - lastAckedPacket); // numbers looped around
-		//}
-		return (seqNum - lastAckedPacket + MAX_SEQ_NUM) % MAX_SEQ_NUM; //numbers didnt loop around
+		if(seqNum < (MAX_SEQ_NUM/2) && lastAckedPacket > (MAX_SEQ_NUM/2)){
+			return seqNum + (MAX_SEQ_NUM - lastAckedPacket); // numbers looped around
+		}
+		return (seqNum - lastAckedPacket) % MAX_SEQ_NUM; //numbers didnt loop around
 	}
 
 	void sendDataPacketsThread(int sockfd){
@@ -292,14 +313,14 @@ public:
                 dataSent += MSS;
 			}
 		}
-        //cout << "send thread ended" <<endl;
+        cout << "send thread ended" <<endl;
 	}
     void checkTimeoutThread(int sockfd){
         clock_t lastCheck = std::clock();
         while(!finishSend){
             double duration;
             duration = (std::clock() - lastCheck) / (double) CLOCKS_PER_SEC;
-            if (duration > 0.05) {
+            if (duration > 0.0001) {
                 clock_t lastCheck = std::clock();
                 //cout << "Retran timer size is " << retran_timer.size() << endl;
                 if (retran_timer.size()) {
@@ -318,7 +339,7 @@ public:
                 }
             }
         }
-        //cout << "timeout thread ended"<<endl;
+        cout << "timeout thread ended"<<endl;
     }
 	void resendPacket(int sockfd, int index){
 		char* data = fileBytes.data();
@@ -426,26 +447,25 @@ int main(int argc, char *argv[])
         doTimeout(sockfd, serverState);
 
         // Start ending sequence
-        //cout<<"Sent fin"<<endl;
-        serverState->finSent=true;
+        cout<<"Sent fin"<<endl;
         serverState->sendPacket(sockfd,dummy,0,0,0,1,0,0);
         start = std::clock();
         while (!serverState->finACK) {
             duration = ( std::clock() - start ) / (double) CLOCKS_PER_SEC;
             if (duration > 0.5) {
-                serverState->sendPacket(sockfd,dummy,0,0,0,1,1,serverState->seqNum);
-                start = std::clock();
+                serverState->sendPacket(sockfd,dummy,0,0,0,1,1,serverState->seqNum-1);
+                start=std::clock();
             }
-
         }
         while(!serverState->closeConnection){
-            usleep(10000);
+            usleep(1000);
             continue;
         }
-        //cout <<"received fin"<<endl;
-        serverState->sendPacket(sockfd,dummy,0,0,1,0,0,0);
-        //Wait 2*RTO
+        cout <<"received fin"<<endl;
+
+        cout<<"Wait 2RTO"<<endl;
         usleep(1000000);
+        serverState->timewaitDone=true;
         delete(serverState);
 
 	}
@@ -469,7 +489,7 @@ vector<char> getFileBuffer(string filePath) {
 }
 
 void recvPacketsThread(int sockfd, ServerState* serverState){
-	while(!serverState->closeConnection){
+	while(!serverState->timewaitDone){
 		serverState->recvPacket(sockfd);
 	}
     //cout << "receive thread ended"<<endl;
