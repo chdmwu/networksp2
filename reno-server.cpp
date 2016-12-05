@@ -150,7 +150,7 @@ public:
                 if (establishedTCP) {
                     ackCycles += 1;
                 }
-                cout<<"ackcycle add 1"<<endl;
+                //cout<<"ackcycle add 1"<<endl;
             } else {
                 lastAckedPacket = max(lastAckedPacket, recv.getAckNum());
             }
@@ -173,11 +173,10 @@ public:
                     if (retran_timer.size()) {
                         for (int ii = retran_timer.size() - 1; ii >= 0; ii--) {
                             if (retran_timer[ii].first < lastAckedPacket+ackCycles*MAX_SEQ_NUM) {
-                                cout << "removing " << retran_timer[ii].first << " from retran" << endl;
                                 retran_timer.erase(retran_timer.begin() + ii);
                             }
                         }
-                        cout << "retran length after ack" << retran_timer.size() <<endl;
+                        //cout << "retran length " << retran_timer.size() <<endl;
                     }
                     if (state == "SS") {
                         if (!(ackCycles==0 && lastAckedPacket==initSeq+1)) {
@@ -209,11 +208,10 @@ public:
                     }
                     //cout << "Dup ACK " << dupAcks << endl;
                     if (dupAcks >= 3 && (state == "SS" || state == "CA")) {
-                        state = "SS";
+                        state = "FR";
                         ssthresh = max(cwnd / 2, (int) MSS);
-                        cwnd = MSS;
+                        cwnd = min(ssthresh + 3 * MSS,MAX_CWND);
                         resendPacket(sockfd, lastAckedPacket+ackCycles*MAX_SEQ_NUM); //retransmit packet
-                        dupAcks= 0;
                     }
                 }
                 cout << "State " << state << endl;
@@ -250,25 +248,29 @@ public:
             //cout << "Waiting... " << "lastAck" << lastAckedPacket<< "seqNum" << seqNum << "unacked" << unackedBytes << endl;
 		}
         //cout << "Unacked " << unackedBytes << " cwnd " << cwnd << endl;
-
+        if (retran_timer.size()) {
+            double duration;
+            duration = ( std::clock() - retran_timer.front().second ) / (double) CLOCKS_PER_SEC;
+            //cout << "retran head " << retran_timer.front().first << "duration " << duration << endl;
+        }
         int bytes = sendto(sockfd, pSend.getRawPacketPointer(), pSend.getRawPacketSize(), 0, &clientAddr, clientAddrSize);
         if (establishedTCP && !finSent) {
 
             if (retransmit){
-                cout << "adding " << retran_seq << " to retran" << endl;
+                //cout << "adding " << retran_seq << " to retran" << endl;
                 //cout << "retran okay ? " << (retran_seq == retran_timer.front().first ) << endl;
                 retran_timer.push_back(std::make_pair(retran_seq,clock()));
-                cout << "removing " << retran_timer.front().first << " from retran" << endl;
+                //cout << "removing " << retran_timer.front().first << " from retran" << endl;
                 retran_timer.erase(retran_timer.begin());
 
 
             }
             else{
-                cout << "adding " << sendSeqNum+seqCycles*MAX_SEQ_NUM << " to retran" << endl;
+                //cout << "adding " << sendSeqNum+seqCycles*MAX_SEQ_NUM << " to retran" << endl;
                 retran_timer.push_back(std::make_pair(sendSeqNum+seqCycles*MAX_SEQ_NUM,clock()));
             }
 
-            cout << "retran length after send " << retran_timer.size() << endl;
+            //cout << "retran length after send " << retran_timer.size() << endl;
         }
         if(bytes == -1){
             std::cerr << "ERROR send" << endl;
@@ -321,7 +323,7 @@ public:
         while(!finishSend){
             double duration;
             duration = (std::clock() - lastCheck) / (double) CLOCKS_PER_SEC;
-            if (duration > 0.000001) {
+            if (duration > 0.0001) {
                 clock_t lastCheck = std::clock();
                 //cout << "Retran timer size is " << retran_timer.size() << endl;
                 if (retran_timer.size()) {

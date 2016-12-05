@@ -50,7 +50,7 @@ public:
 	bool finRcv;
 
 	ClientState(int sockfd_, sockaddr_in* serverAddr_){
-		seqNum = rand() % MAX_SEQ_NUM;//TODO random
+		seqNum = rand() % MAX_SEQ_NUM;
 		lastAckedPacket = seqNum;
 		sockfd = sockfd_;
 		serverAddr = serverAddr_;
@@ -121,8 +121,8 @@ public:
                         || (ackNum <= (MAX_SEQ_NUM/2) && (recv->getSeqNum()>ackNum && recv->getSeqNum()<ackNum+(MAX_SEQ_NUM/2) )))
 					{
                         outOfOrderPackets.push_back(recv);
-                        cout << "Packet out of order packet " << recv->getSeqNum() << endl;
-                        cout << "Saved out of order packet " << outOfOrderPackets.size() << endl;
+                        //cout << "Packet out of order packet " << recv->getSeqNum() << endl;
+                        //cout << "Saved out of order packet " << outOfOrderPackets.size() << endl;
                     }
                 }
             }
@@ -186,7 +186,7 @@ void recvDataPacketThread(string fileName, ClientState* clientState);
 
 int main(int argc, char *argv[]){
     srand ( time(NULL) );
-	string fileName = "./received.png";
+	string fileName = "./received.data";
 
 	//Delete old file, if it exists
 	std::remove(fileName.c_str());
@@ -320,7 +320,7 @@ string getIP(string host){
 	std::cerr << "getaddrinfo: " << gai_strerror(status) << std::endl;
 	}
 
-	std::cout << "IP addresses for " << host << ": " << std::endl;
+	//std::cout << "IP addresses for " << host << ": " << std::endl;
 
 	for(struct addrinfo* p = res; p != 0; p = p->ai_next) {
 	// convert address to IPv4 address
