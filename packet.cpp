@@ -156,7 +156,7 @@ public:
 			char array[getRawPacketSize()];
 			memcpy(array, buf, getRawPacketSize());
 			myfile.write(array+HEADERSIZE, dataSize);
-			cout << "writing to file bytes: " << dataSize << endl;
+			//cout << "writing to file bytes: " << dataSize << endl;
 		}
 	}
 };
