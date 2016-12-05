@@ -27,6 +27,7 @@ public:
 	static const size_t MAX_DATA_SIZE = 1024;
 	static const size_t HEADERSIZE = 8;
 	static const size_t MAX_SEQ_NUM = 30720;
+    static const size_t MAX_CWND = 64512;
 
 	
 	//Assumes buf is 1000 bytes

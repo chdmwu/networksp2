@@ -29,12 +29,16 @@ using std::max;
 using std::min;
 
 vector<char> getFileBuffer(string filePath);
+vector<char> getFilePiece(std::ifstream& file, int index, int size);
+int getFileSize(std::ifstream& filePath);
 string getIP(string host);
 
 
 class ServerState {
 public:
     const size_t MSS = Packet::MAX_DATA_SIZE;
+    const size_t MAX_CWND = Packet::MAX_CWND;
+    std::ifstream fileStream;
     const size_t ONE = 1;
     const size_t MAX_SEQ_NUM = 30720;
     uint16_t seqNum, ackNum, windowSize = MSS * 15, cwnd = MSS, ssthresh = MSS * 15, clientWindowSize = 1024, lastAckedPacket;
@@ -46,7 +50,6 @@ public:
     struct sockaddr clientAddr;
     socklen_t clientAddrSize;
     int dataSent, totalData;
-    std::vector<char> fileBytes;
     bool handshake1;
     bool handshake2;
     bool establishedTCP;
@@ -72,9 +75,9 @@ public:
         prevAck=seqNum;
         dupAcks = 0;
         state = "SS";
-        fileBytes = getFileBuffer(fileDir);
+        fileStream.open(fileDir, std::ios::binary | std::ios::ate);
         dataSent = 0;
-        totalData = fileBytes.size();
+        totalData = getFileSize(fileStream);
         handshake1=false;
         handshake2=false;
         establishedTCP=false;
@@ -187,7 +190,7 @@ public:
 
                     if (state == "SS") {
                         if (!(ackCycles==0 && lastAckedPacket==initSeq+1)) {
-                            cwnd += MSS;
+                            cwnd = min(cwnd+MSS,MAX_CWND);
                         }
                         dupAcks = 0;
                         if (cwnd >= ssthresh) {
@@ -196,7 +199,7 @@ public:
                     } else if (state == "CA") {
                         cwndInc += MSS;
                         if (cwndInc>=cwnd) {
-                            cwnd += MSS;
+                            cwnd = min(cwnd+MSS,MAX_CWND);
                             cwndInc = 0;
                         }
                         dupAcks = 0;
@@ -212,7 +215,7 @@ public:
                     } else if (state == "CA") {
                         dupAcks++;
                     } else if (state == "FR") {
-                        cwnd += MSS;
+                        cwnd = min(cwnd+MSS,MAX_CWND);
                     }
                     //cout << "Dup ACK " << dupAcks << endl;
                     if (dupAcks >= 3 && (state == "SS" || state == "CA")) {
@@ -314,16 +317,15 @@ public:
     }
 
     void sendDataPacketsThread(int sockfd){
-        char* data = fileBytes.data();
         while(dataSent < totalData){
             //cout << "Data sent" << dataSent << "TotalData" <<totalData<<endl;
-            if(totalData - dataSent < MSS){
-                sendPacket(sockfd,data + dataSent,totalData - dataSent,0,1,0,0,0);
-                dataSent += totalData-dataSent;
-            } else {
-                sendPacket(sockfd,data + dataSent,MSS,0,1,0,0,0);
-                dataSent += MSS;
+            int dataSize = MSS;
+            if (totalData- dataSent < MSS){
+                dataSize = totalData - dataSent;
             }
+            vector<char> packet = getFilePiece(fileStream,dataSent,dataSize);
+            sendPacket(sockfd,packet.data(),dataSize,0,1,0,0,0);
+            dataSent+=dataSize;
         }
         //cout << "send thread ended" <<endl;
     }
@@ -355,13 +357,13 @@ public:
         //cout << "timeout thread ended"<<endl;
     }
     void resendPacket(int sockfd, int index){
-        char* data = fileBytes.data();
-        //cout << "file location" << index - initSeq -1 << endl;
-        if(totalData - (index-initSeq-1) < MSS){
-            sendPacket(sockfd,data + index-initSeq-1,totalData - (index-initSeq-1),0,1,0,1,index);
-        } else {
-            sendPacket(sockfd,data + index-initSeq-1,MSS,0,1,0,1,index);
+        int dataSize = MSS;
+        if (totalData - (index - initSeq - 1) < MSS) {
+            dataSize = totalData - (index - initSeq - 1);
         }
+        vector<char> packet = getFilePiece(fileStream, index - initSeq - 1, dataSize);
+
+        sendPacket(sockfd, packet.data(), dataSize, 0, 1, 0, 1, index);
     }
 };
 
@@ -451,7 +453,6 @@ int main(int argc, char *argv[])
             }
         }
 
-        std::vector<char> fileBytes = getFileBuffer(fileDir);
         //Send data packet
         //serverState.sendPacket(clientSockfd,fileBytes.data(),fileBytes.size(), 0, 1, 0);
 
@@ -500,6 +501,27 @@ vector<char> getFileBuffer(string filePath) {
     file.read(buffer.data(), size);
     //buffer.back() = '\0';
     return buffer;
+}
+vector<char> getFilePiece(std::ifstream& file, int index, int size) {
+    if (!file.is_open()){
+        std::cerr << "Error opening file";
+    }
+    file.seekg(index);
+
+    std::vector<char> buffer(size);
+    file.read(buffer.data(), size);
+    //buffer.back() = '\0';
+    return buffer;
+}
+
+int getFileSize(std::ifstream& file) {
+    if (!file.is_open()){
+        std::cerr << "Error opening file";
+    }
+    std::streamsize size = file.tellg();
+    file.seekg(0, std::ios::beg);
+
+    return size;
 }
 
 void recvPacketsThread(int sockfd, ServerState* serverState){
